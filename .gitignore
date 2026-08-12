@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.safetensors
+*.pt
+
+# Runtime artifacts and non-code model assets are intentionally not stored here.
+results/
+checkpoints/
+openpi_official/assets*/
+pi05_obs/
+real_robot_demos/

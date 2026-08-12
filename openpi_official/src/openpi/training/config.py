@@ -526,6 +526,41 @@ class LeRobotPickPlaceLegacyDeltaDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotUR5eDexHandJointDataConfig(DataConfigFactory):
+    """UR5e joint targets with model-space arm deltas and absolute hand counts."""
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        delta_action_mask = _transforms.make_bool_mask(6, -6)
+        data_transforms = _transforms.Group(
+            inputs=[pickplace_policy.PickPlaceInputs(model_type=model_config.model_type)],
+            outputs=[pickplace_policy.PickPlaceOutputs()],
+        ).push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "observation/image": "image",
+                            "observation/wrist_image": "wrist_image",
+                            "observation/state": "state",
+                            "actions": "actions",
+                            "prompt": "prompt",
+                        }
+                    )
+                ]
+            ),
+            data_transforms=data_transforms,
+            model_transforms=ModelTransformFactory()(model_config),
+            action_sequence_keys=("actions",),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class TrainConfig:
     # Name of the config. Must be unique. Will be used to reference this config.
     name: tyro.conf.Suppress[str]
@@ -1077,7 +1112,7 @@ _CONFIGS = [
             assets=AssetsConfig(asset_id="local/pi05-pickplace-il"),
             base_config=DataConfig(prompt_from_task=True),
         ),
-        pytorch_weight_path="/nfs_global/S/yangrongzheng/pi05/openpi_official/ckpt/pi05model",
+        pytorch_weight_path=None,
         ema_decay=None,
         num_train_steps=20_000,
         batch_size=16,
@@ -1142,7 +1177,7 @@ _CONFIGS = [
             ),
             model_transforms=ModelTransformFactory(),
         ),
-        pytorch_weight_path="/nfs_global/S/yangrongzheng/pi05/openpi_official/ckpt/pi05model",
+        pytorch_weight_path=None,
         ema_decay=None,
         num_train_steps=20_000,
         batch_size=16,
@@ -1206,7 +1241,7 @@ _CONFIGS = [
             ),
             model_transforms=ModelTransformFactory(),
         ),
-        pytorch_weight_path="/nfs_global/S/yangrongzheng/pi05/openpi_official/ckpt/pi05model",
+        pytorch_weight_path=None,
         ema_decay=None,
         num_train_steps=20_000,
         batch_size=16,
@@ -1239,7 +1274,7 @@ _CONFIGS = [
             assets=AssetsConfig(asset_id="local/pi05-pickplace-il"),
             base_config=DataConfig(prompt_from_task=True),
         ),
-        pytorch_weight_path="/nfs_global/S/yangrongzheng/pi05/openpi_official/ckpt/pi05model",
+        pytorch_weight_path=None,
         ema_decay=None,
         num_train_steps=20_000,
         batch_size=16,
@@ -1255,6 +1290,112 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         pytorch_training_precision="bfloat16",
         lora_config=None,
+    ),
+    TrainConfig(
+        name="pi05_pickplace_dexhand_full_pytorch",
+        assets_namespace="pi05_pickplace",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,
+            action_horizon=10,
+            paligemma_variant="gemma_2b",
+            action_expert_variant="gemma_300m",
+            discrete_state_input=False,
+            control_mode="delta_eef",
+            action_mask_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+        ),
+        data=LeRobotPickPlaceLegacyDeltaDataConfig(
+            repo_id="local/pi05-pickplace-il",
+            assets=AssetsConfig(asset_id="local/pi05-pickplace-il"),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        pytorch_weight_path=None,
+        ema_decay=None,
+        num_train_steps=20_000,
+        batch_size=16,
+        log_interval=10,
+        save_interval=1000,
+        num_workers=2,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1000,
+            peak_lr=2e-5,
+            decay_steps=20_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        pytorch_training_precision="bfloat16",
+        lora_config=None,
+    ),
+    TrainConfig(
+        name="pi05_pickplace_ur5e_joint_delta_full_pytorch",
+        assets_namespace="pi05_pickplace_ur5e_joint_delta",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,
+            action_horizon=10,
+            paligemma_variant="gemma_2b",
+            action_expert_variant="gemma_300m",
+            discrete_state_input=False,
+            control_mode="joint_position",
+            action_mask_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+        ),
+        data=LeRobotUR5eDexHandJointDataConfig(
+            repo_id="local/pi05-pickplace-joint-hand-target",
+            assets=AssetsConfig(asset_id="local/pi05-pickplace-joint-hand-target"),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        pytorch_weight_path=None,
+        ema_decay=None,
+        num_train_steps=20_000,
+        batch_size=16,
+        log_interval=10,
+        save_interval=1000,
+        num_workers=2,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1000,
+            peak_lr=2e-5,
+            decay_steps=20_000,
+            decay_lr=2e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+       pytorch_training_precision="bfloat16",
+       lora_config=None,
+   ),
+    TrainConfig(
+        name="pi05_pickplace_ur5e_joint_delta_full_jax",
+        assets_namespace="pi05_pickplace_ur5e_joint_delta",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,
+            action_horizon=10,
+            paligemma_variant="gemma_2b",
+            action_expert_variant="gemma_300m",
+            discrete_state_input=False,
+            control_mode="joint_position",
+            action_mask_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+        ),
+        data=LeRobotUR5eDexHandJointDataConfig(
+            repo_id="local/pi05-pickplace-joint-hand-target",
+            assets=AssetsConfig(asset_id="local/pi05-pickplace-joint-hand-target"),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params"
+        ),
+        ema_decay=None,
+        num_train_steps=60_000,
+        batch_size=32,
+        log_interval=10,
+        save_interval=1000,
+        num_workers=2,
+        fsdp_devices=8,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10000,
+            peak_lr=5e-5,
+            decay_steps=60000,
+            decay_lr=1e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
     ),
     TrainConfig(
         name="pi05_pickplace_dexhand_full_lora_pytorch_32",
@@ -1276,7 +1417,7 @@ _CONFIGS = [
             assets=AssetsConfig(asset_id="local/pi05-pickplace-il"),
             base_config=DataConfig(prompt_from_task=True),
         ),
-        pytorch_weight_path="/nfs_global/S/yangrongzheng/pi05/openpi_official/ckpt/pi05model",
+        pytorch_weight_path=None,
         ema_decay=None,
         num_train_steps=20_000,
         batch_size=16,

@@ -52,7 +52,7 @@ class Pi0Config(_model.BaseModelConfig):
                 "max-autotune",
                 "max-autotune-no-cudagraphs",
             ]
-        assert self.control_mode in ["absolute_eef", "delta_eef"]
+        assert self.control_mode in ["absolute_eef", "delta_eef", "joint_position"]
 
     @property
     @override

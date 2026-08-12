@@ -7,6 +7,7 @@ from typing import Literal, Protocol, SupportsIndex, TypeVar
 
 import jax
 import jax.numpy as jnp
+from datasets.features import features as datasets_features
 import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
 import numpy as np
 import torch
@@ -17,6 +18,12 @@ from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
 
 T_co = TypeVar("T_co", covariant=True)
+
+
+def _register_legacy_hf_list_feature() -> None:
+    """Allow datasets written with the legacy Hugging Face `List` feature name."""
+    if "List" not in datasets_features._FEATURE_TYPES:
+        datasets_features._FEATURE_TYPES["List"] = datasets_features.Sequence
 
 
 def _patch_lerobot_column_stack_compat() -> None:
@@ -40,6 +47,7 @@ def _patch_lerobot_column_stack_compat() -> None:
     lerobot_dataset.LeRobotDataset._openpi_column_stack_compat = True
 
 
+_register_legacy_hf_list_feature()
 _patch_lerobot_column_stack_compat()
 
 
