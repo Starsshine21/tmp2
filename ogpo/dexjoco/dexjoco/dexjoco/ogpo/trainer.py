@@ -21,6 +21,13 @@ from .conservative_advantage import (
     scheduled_lambda_abs,
     sign_consensus_advantage,
 )
+from .categorical_q import (
+    categorical_q_entropy,
+    consensus_ranking_loss,
+    decode_categorical_q,
+    hl_gauss_projection,
+    ranking_action_negatives,
+)
 from .critic import ScalarQEnsemble, assert_no_gradients, clone_target, soft_update
 from .critic_targets import aggregate_value_heads
 from .distributional_value import DistributionalValueEnsemble, make_support, make_support_from_targets
@@ -1005,6 +1012,132 @@ def _multimodal_scalar_q_update(
     return metrics
 
 
+def _multimodal_q_predictions(
+    state: OGPOTrainState,
+    batch: ChunkBatch,
+    features: StateFeatures,
+    critic_mask: torch.Tensor,
+    critic_cfg: dict[str, Any],
+) -> tuple[torch.Tensor, torch.Tensor | None, dict[str, torch.Tensor]]:
+    """Score positive and ranking actions with one shared state encoding."""
+    rank_enabled = bool(critic_cfg.get("rank_consensus_enabled", False))
+    use_strong = rank_enabled and bool(critic_cfg.get("rank_use_strong_noise", True))
+    use_random = rank_enabled and bool(critic_cfg.get("rank_use_random_negative", True))
+    variants: list[tuple[str, torch.Tensor]] = [("positive", batch.action_chunks)]
+    if use_strong or use_random:
+        action_pool = state.critic.core.action_pool
+        strong, random = ranking_action_negatives(
+            batch.action_chunks,
+            critic_mask,
+            action_mean=action_pool.action_mean,
+            action_std=action_pool.action_std,
+            action_min=action_pool.action_min,
+            action_max=action_pool.action_max,
+            noise_sigma=float(critic_cfg.get("rank_noise_sigma", 0.15)),
+        )
+        if use_strong:
+            variants.append(("strong", strong))
+        if use_random:
+            variants.append(("random", random))
+
+    variant_count = len(variants)
+    combined_actions = torch.cat([actions for _, actions in variants], dim=0)
+    combined_masks = torch.cat([critic_mask] * variant_count, dim=0)
+    combined_features = StateFeatures(readout=features.readout.repeat(variant_count, 1))
+    if state.critic.core.q_representation == "categorical":
+        combined_logits = state.critic.q_logits_from_features(
+            combined_features,
+            combined_actions,
+            combined_masks,
+        )
+        q_values = decode_categorical_q(combined_logits, state.critic.core.q_support)
+        q_logits = combined_logits.reshape(
+            state.critic.ensemble_size,
+            variant_count,
+            batch.batch_size,
+            combined_logits.shape[-1],
+        )[:, 0]
+    else:
+        q_values = state.critic.q_from_features(
+            combined_features,
+            combined_actions,
+            combined_masks,
+        )
+        q_logits = None
+    q_values = q_values.reshape(state.critic.ensemble_size, variant_count, batch.batch_size)
+    ranking_values = {
+        name: q_values[:, index]
+        for index, (name, _) in enumerate(variants)
+    }
+    return q_values[:, 0], q_logits, ranking_values
+
+
+def _ranking_loss_and_metrics(
+    ranking_values: dict[str, torch.Tensor],
+    batch: ChunkBatch,
+    critic_cfg: dict[str, Any],
+) -> tuple[torch.Tensor, dict[str, float]]:
+    positive = ranking_values["positive"]
+    zero = positive.sum().float() * 0.0
+    metrics = {
+        "critic/rank_loss": 0.0,
+        "critic/rank_loss_strong": 0.0,
+        "critic/rank_loss_random": 0.0,
+        "critic/rank_pair_count": 0.0,
+        "critic/rank_d1_mean": 0.0,
+        "critic/rank_d2_mean": 0.0,
+        "critic/rank_d3_mean": 0.0,
+        "critic/rank_worst_margin_mean": 0.0,
+    }
+    if not bool(critic_cfg.get("rank_consensus_enabled", False)):
+        return zero, metrics
+    valid = (
+        batch.successes.bool()
+        if bool(critic_cfg.get("rank_only_success", True))
+        else torch.ones_like(batch.successes, dtype=torch.bool)
+    )
+    q_num_bins = int(critic_cfg.get("q_num_bins", 201))
+    if q_num_bins < 2:
+        raise ValueError("critic.q_num_bins must be at least 2")
+    bin_width = (
+        float(critic_cfg.get("q_vmax", 1.1)) - float(critic_cfg.get("q_vmin", -0.1))
+    ) / (q_num_bins - 1)
+    margin = float(critic_cfg.get("rank_margin_bins", 2.0)) * bin_width
+    losses = []
+    margin_parts = []
+    worst_parts = []
+    for name in ("strong", "random"):
+        if name not in ranking_values:
+            continue
+        rank_loss, member_margins, worst_margin = consensus_ranking_loss(
+            positive,
+            ranking_values[name],
+            valid,
+            margin=margin,
+            softmin_tau=float(critic_cfg.get("rank_softmin_tau", 0.02)),
+            temperature=float(critic_cfg.get("rank_temperature", 0.02)),
+        )
+        losses.append(rank_loss)
+        metrics[f"critic/rank_loss_{name}"] = float(rank_loss.detach().item())
+        if bool(valid.any()):
+            margin_parts.append(member_margins[:, valid])
+            worst_parts.append(worst_margin[valid])
+    if not losses:
+        return zero, metrics
+    loss = torch.stack(losses).mean()
+    metrics["critic/rank_loss"] = float(loss.detach().item())
+    metrics["critic/rank_pair_count"] = float(int(valid.sum().item()) * len(losses))
+    if margin_parts:
+        all_margins = torch.cat(margin_parts, dim=1).detach()
+        all_worst = torch.cat(worst_parts, dim=0).detach()
+        for member in range(min(3, all_margins.shape[0])):
+            metrics[f"critic/rank_d{member + 1}_mean"] = float(
+                all_margins[member].mean().item()
+            )
+        metrics["critic/rank_worst_margin_mean"] = float(all_worst.mean().item())
+    return loss, metrics
+
+
 def _multimodal_critic_update(
     state: OGPOTrainState,
     batch: ChunkBatch,
@@ -1022,7 +1155,13 @@ def _multimodal_critic_update(
     critic_mask = _critic_execution_mask(batch, config)
 
     features = state.critic.encode_state(batch)
-    q_pred = state.critic.q_from_features(features, batch.action_chunks, critic_mask)
+    q_pred, q_logits, ranking_values = _multimodal_q_predictions(
+        state,
+        batch,
+        features,
+        critic_mask,
+        critic_cfg,
+    )
     with torch.no_grad():
         target_aggregation = str(critic_cfg.get("bootstrap_target", "ensemble_mean"))
         reference_value_samples = int(critic_cfg.get("reference_value_samples", 0))
@@ -1102,23 +1241,53 @@ def _multimodal_critic_update(
         float(critic_cfg.get("bootstrap_probability", 0.8)),
         device=q_pred.device,
     )
+    q_representation = state.critic.core.q_representation
     q_target = y.unsqueeze(0).expand_as(q_pred)
-    q_loss_type = str(critic_cfg.get("q_loss", "huber"))
-    if q_loss_type == "mse":
-        q_error = (q_pred - q_target).square()
-    elif q_loss_type == "huber":
-        q_error = F.huber_loss(
-            q_pred,
-            q_target,
-            delta=float(critic_cfg.get("huber_delta", 1.0)),
-            reduction="none",
+    if q_representation == "categorical":
+        assert q_logits is not None and state.critic.core.q_support is not None
+        q_target_distribution = hl_gauss_projection(
+            y,
+            state.critic.core.q_support,
+            sigma_bins=float(critic_cfg.get("q_hl_gauss_sigma_bins", 0.75)),
         )
+        q_error = -(
+            q_target_distribution.unsqueeze(0)
+            * F.log_softmax(q_logits.float(), dim=-1)
+        ).sum(dim=-1)
+        q_loss_type = "categorical_ce"
+        q_entropy = categorical_q_entropy(q_logits.detach())
+        support = state.critic.core.q_support
+        q_clip_low = (y < support[0]).float().mean()
+        q_clip_high = (y > support[-1]).float().mean()
     else:
-        raise ValueError(f"unsupported critic.q_loss={q_loss_type!r}")
+        q_loss_type = str(critic_cfg.get("q_loss", "huber"))
+        if q_loss_type == "mse":
+            q_error = (q_pred - q_target).square()
+        elif q_loss_type == "huber":
+            q_error = F.huber_loss(
+                q_pred,
+                q_target,
+                delta=float(critic_cfg.get("huber_delta", 1.0)),
+                reduction="none",
+            )
+        else:
+            raise ValueError(f"unsupported critic.q_loss={q_loss_type!r}")
+        q_entropy = q_pred.new_zeros(q_pred.shape)
+        q_clip_low = q_pred.new_zeros(())
+        q_clip_high = q_pred.new_zeros(())
     q_loss = (q_error * mask.to(q_error.dtype)).sum() / mask.sum().clamp_min(1)
     value_logits = state.critic.value_logits_from_features(features)
     divl_loss = -(z_target * F.log_softmax(value_logits, dim=-1)).sum(dim=-1).mean()
-    loss = q_loss + float(divl_cfg.get("loss_weight", 1.0)) * divl_loss
+    rank_loss, rank_metrics = _ranking_loss_and_metrics(
+        ranking_values,
+        batch,
+        critic_cfg,
+    )
+    loss = (
+        q_loss
+        + float(divl_cfg.get("loss_weight", 1.0)) * divl_loss
+        + float(critic_cfg.get("rank_loss_weight", 0.1)) * rank_loss
+    )
     (loss * float(loss_scale)).backward()
     critic_grad_norm = 0.0
     critic_lr_scale = 1.0
@@ -1146,7 +1315,8 @@ def _multimodal_critic_update(
     metrics = {
         "critic_loss": float(loss.detach().item()),
         "q_loss": float(q_loss.detach().item()),
-        "q_loss_is_mse": float(q_loss_type == "mse"),
+        "q_loss_is_mse": float(q_representation == "scalar" and q_loss_type == "mse"),
+        "q_representation_is_categorical": float(q_representation == "categorical"),
         "divl_loss": float(divl_loss.detach().item()),
         "divl_enabled": 1.0,
         "target_mean": float(y.mean().item()),
@@ -1180,9 +1350,22 @@ def _multimodal_critic_update(
         "critic_stage_gemma_lora_td": float(state.critic_stage == "gemma_lora_td"),
         "critic_stage_full_td": float(state.critic_stage == "full_td"),
         "reference_value_samples": float(reference_value_samples),
+        "critic/q_ce_loss": float(q_loss.detach().item())
+        if q_representation == "categorical"
+        else 0.0,
+        "critic/q_decoded_mean": float(q_pred.detach().mean().item()),
+        "critic/q_decoded_std": float(q_pred.detach().std(unbiased=False).item()),
+        "critic/q_target_mean": float(y.mean().item()),
+        "critic/q_target_std": float(y.std(unbiased=False).item()),
+        "critic/q_target_clip_low_fraction": float(q_clip_low.item()),
+        "critic/q_target_clip_high_fraction": float(q_clip_high.item()),
+        "critic/q_entropy_mean": float(q_entropy.mean().item()),
     }
+    metrics.update(rank_metrics)
     if reference_value is not None:
         metrics["reference_value_mean"] = float(reference_value.mean().item())
+    for member, member_loss in enumerate(q_error.detach().mean(dim=1)):
+        metrics[f"q_loss_member_{member}"] = float(member_loss.item())
     return metrics
 
 
@@ -1355,7 +1538,10 @@ def accumulated_critic_update(
             loss_scale=weight,
         )
         for key, value in metrics.items():
-            combined[key] = combined.get(key, 0.0) + weight * float(value)
+            if key == "critic/rank_pair_count":
+                combined[key] = combined.get(key, 0.0) + float(value)
+            else:
+                combined[key] = combined.get(key, 0.0) + weight * float(value)
     combined["critic_grad_norm"] = float(metrics["critic_grad_norm"])
     combined["target_updated"] = float(metrics["target_updated"])
     combined["effective_batch_size"] = float(batch.batch_size)
@@ -4473,6 +4659,29 @@ def save_checkpoint(state: OGPOTrainState, config: dict[str, Any], path: str | P
                     **getattr(state.critic, "model_metadata", {}),
                     "action_mean": state.critic.core.action_pool.action_mean.detach().cpu(),
                     "action_std": state.critic.core.action_pool.action_std.detach().cpu(),
+                    "q_representation": state.critic.core.q_representation,
+                    "q_support": (
+                        None
+                        if state.critic.core.q_support is None
+                        else state.critic.core.q_support.detach().cpu()
+                    ),
+                    "q_hl_gauss_sigma_bins": config.get("critic", {}).get(
+                        "q_hl_gauss_sigma_bins"
+                    ),
+                    "rank_consensus": {
+                        key: config.get("critic", {}).get(key)
+                        for key in (
+                            "rank_consensus_enabled",
+                            "rank_loss_weight",
+                            "rank_margin_bins",
+                            "rank_softmin_tau",
+                            "rank_temperature",
+                            "rank_noise_sigma",
+                            "rank_use_strong_noise",
+                            "rank_use_random_negative",
+                            "rank_only_success",
+                        )
+                    },
                 },
             }
         )
@@ -4602,4 +4811,89 @@ def load_critic_checkpoint(
     state.step = int(payload.get("training_step", 0))
     if state.target_generator is not None and payload.get("target_generator_state") is not None:
         state.target_generator.set_state(payload["target_generator_state"].cpu())
+    return payload
+
+
+def initialize_critic_from_checkpoint(
+    path: str | Path,
+    state: OGPOTrainState,
+) -> dict[str, Any]:
+    """Initialize a critic while keeping the current run config and optimizer fresh.
+
+    This is intentionally distinct from resume: it supports scalar-Q to
+    categorical-Q initialization and does not restore steps, optimizer state,
+    training stage, support, or early-stopping state.
+    """
+    path = Path(path)
+    payload = torch.load(
+        path,
+        map_location=next(state.critic.parameters()).device,
+        weights_only=False,
+    )
+    if not isinstance(state.critic, MultiHeadUdivlCritic):
+        raise TypeError("partial critic initialization requires MultiHeadUdivlCritic")
+    if payload.get("critic_format") != "gemma_siglip_multihead":
+        raise ValueError("initial checkpoint does not contain a multimodal U-DIVL critic")
+
+    def load_compatible(
+        module: MultiHeadUdivlCritic,
+        source: dict[str, torch.Tensor],
+        *,
+        skip_q_heads: bool,
+    ) -> tuple[list[str], list[str]]:
+        destination = module.state_dict()
+        compatible: dict[str, torch.Tensor] = {}
+        skipped: list[str] = []
+        for name, value in source.items():
+            if skip_q_heads and (name.startswith("core.q_heads.") or name == "core.q_support"):
+                skipped.append(name)
+                continue
+            if name not in destination or destination[name].shape != value.shape:
+                skipped.append(name)
+                continue
+            compatible[name] = value
+        module.load_state_dict(compatible, strict=False)
+        return sorted(compatible), sorted(skipped)
+
+    source_online = payload["multimodal_critic"]
+    source_target = payload["target_multimodal_critic"]
+    destination_categorical = state.critic.core.q_representation == "categorical"
+    source_categorical = "core.q_support" in source_online
+    scalar_to_categorical = destination_categorical and not source_categorical
+    online_loaded, online_skipped = load_compatible(
+        state.critic,
+        source_online,
+        skip_q_heads=scalar_to_categorical,
+    )
+    target_loaded, target_skipped = load_compatible(
+        state.target_critic,
+        source_target,
+        skip_q_heads=scalar_to_categorical,
+    )
+    if scalar_to_categorical:
+        state.target_critic.core.q_heads.load_state_dict(
+            state.critic.core.q_heads.state_dict()
+        )
+
+    q_reinitialized = sorted(
+        name
+        for name in state.critic.state_dict()
+        if name.startswith("core.q_heads.") or name == "core.q_support"
+    ) if scalar_to_categorical else []
+    print(
+        "[critic-init] loaded parameters: "
+        f"online={len(online_loaded)} target={len(target_loaded)} from {path}",
+        flush=True,
+    )
+    print(
+        "[critic-init] reinitialized categorical Q parameters: "
+        + (", ".join(q_reinitialized) if q_reinitialized else "none"),
+        flush=True,
+    )
+    print(
+        "[critic-init] skipped incompatible source parameters: "
+        f"online={len(online_skipped)} target={len(target_skipped)}",
+        flush=True,
+    )
+    print("[critic-init] skipped incompatible optimizer states: fresh optimizer", flush=True)
     return payload

@@ -21,34 +21,41 @@ OUT=${ROOT}/outputs/recap-click-mouse
 DATA_ROOT=${OUT}/data/click_mouse
 VALUE_DIR=${OUT}/value_pistar06_gemma3_270m_siglip2_224_10k_b32_8gpu_seed1000_oldcfg
 INFER_ROOT=${OUT}/value_infer_gemma3_270m_siglip2_224_10k_b32_8gpu_seed1000_oldcfg
+RESUME_CKPT=${VALUE_DIR}/checkpoints/004000
+RESUME_CONFIG=${RESUME_CKPT}/pretrained_model/value_train_config.json
 GEMMA_DIR=${ROOT}/Evo-RL/local_models/gemma-3-270m
 SIGLIP_DIR=${ROOT}/Evo-RL/local_models/siglip2-so400m-patch14-224-fixed
 VALUE_PY=${ROOT}/dexjoco/.conda/openpi/bin/python
+LOCAL_TMP=/tmp/${USER}/recap_value_${SLURM_JOB_ID}
 
-mkdir -p "${OUT}/logs" "${OUT}/cache" "${OUT}/tmp"
+mkdir -p "${OUT}/logs" "${OUT}/cache" "${LOCAL_TMP}"
+trap 'rm -rf "${LOCAL_TMP}"' EXIT
 test -f "${OUT}/DATA_COMPLETE"
 test -f "${OUT}/VALUE_GEMMA3_SIGLIP2_8GPU_SMOKE_COMPLETE"
 test -f "${DATA_ROOT}/meta/info.json"
 test -f "${GEMMA_DIR}/model.safetensors"
 test -f "${SIGLIP_DIR}/model.safetensors"
 test -x "${VALUE_PY}"
-test ! -e "${VALUE_DIR}"
+test -s "${RESUME_CKPT}/pretrained_model/model.safetensors"
+test -s "${RESUME_CKPT}/training_state/optimizer_state.safetensors"
+test -s "${RESUME_CONFIG}"
 test ! -e "${INFER_ROOT}"
 
 export PYTHONUNBUFFERED=1
 export TOKENIZERS_PARALLELISM=false
 export HF_HOME=${OUT}/cache/huggingface
 export HF_DATASETS_CACHE=${OUT}/cache/datasets
-export TMPDIR=${OUT}/tmp
+export TMPDIR=${LOCAL_TMP}
 export PYTHONPATH="${RECAP_ROOT}/pydeps:${RECAP_ROOT}/lerobot_src"
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 
-echo "formal_start=$(date --iso-8601=seconds)"
+echo "formal_resume_start=$(date --iso-8601=seconds)"
 echo "github_baseline=95f8b6cd3da782b84c41112c91db5c73fa60f705"
 echo "critic=Gemma-3-270M+SigLIP2-So400m-patch14-224 full_train=true"
 echo "world_size=8 per_gpu_batch=4 global_batch=32 steps=10000 seed=1000"
 echo "optimizer=AdamW lr=5e-5 weight_decay=1e-5 warmup=500 decay_steps=8000 decay_lr=1e-6"
 echo "save_freq=2000 acp_n_step=50 acp_positive_ratio=0.3"
+echo "resume_checkpoint=${RESUME_CKPT} num_workers=0 tmpdir=${TMPDIR}"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
 
 "${VALUE_PY}" -m accelerate.commands.launch \
@@ -56,36 +63,15 @@ nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
   --num_processes=8 \
   --mixed_precision=bf16 \
   -m lerobot.scripts.lerobot_value_train \
-  --dataset.repo_id=local_repo \
-  --dataset.root="${DATA_ROOT}" \
-  --dataset.revision=v3.0 \
-  --value.type=pistar06 \
-  --value.dtype=bfloat16 \
-  --value.vision_repo_id="${SIGLIP_DIR}" \
-  --value.language_repo_id="${GEMMA_DIR}" \
-  --value.task_field=task \
-  --value.camera_features='[observation.images.ego_right,observation.images.wrist]' \
-  --value.state_feature=observation.state \
-  --value.normalization_mapping='{VISUAL: IDENTITY, STATE: QUANTILES, ACTION: IDENTITY}' \
-  --value.device=cuda \
-  --value.push_to_hub=false \
-  --value.freeze_vision_encoder=false \
-  --value.freeze_language_model=false \
-  --value.optimizer_lr=5e-5 \
-  --value.optimizer_weight_decay=1e-5 \
-  --value.scheduler_warmup_steps=500 \
-  --value.scheduler_decay_steps=8000 \
-  --value.scheduler_decay_lr=1e-6 \
-  --batch_size=4 \
+  --config_path="${RESUME_CONFIG}" \
+  --resume=true \
+  --output_dir="${VALUE_DIR}" \
   --steps=10000 \
-  --num_workers=1 \
+  --num_workers=0 \
   --log_freq=100 \
   --save_checkpoint=true \
   --save_freq=2000 \
-  --wandb.enable=false \
-  --seed=1000 \
-  --output_dir="${VALUE_DIR}" \
-  --job_name=click_mouse_gemma3_siglip2_8gpu_10k_b32_oldcfg
+  --wandb.enable=false
 
 export CUDA_VISIBLE_DEVICES=0
 export LEROBOT_VALUE_INFER_DRY_RUN=1

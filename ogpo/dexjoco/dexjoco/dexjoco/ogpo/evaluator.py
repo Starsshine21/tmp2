@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import torch
 
+from .categorical_q import (
+    categorical_q_entropy,
+    decode_categorical_q,
+    ranking_action_negatives,
+)
 from .ensemble import ensemble_mean_std
 from .multimodal_critic import MultiHeadScalarQCritic, MultiHeadUdivlCritic
 from .types import ChunkBatch
@@ -14,22 +19,84 @@ def _critic_predictions(
     *,
     divl=None,
     inference_batch_size: int | None = None,
-) -> tuple[torch.Tensor, torch.Tensor | None]:
+    config: dict | None = None,
+) -> tuple[torch.Tensor, torch.Tensor | None, dict[str, torch.Tensor]]:
     device = next(critic.parameters()).device
     batch_size = batch.batch_size if inference_batch_size is None else max(1, int(inference_batch_size))
     q_chunks = []
     probability_chunks = []
+    diagnostic_chunks: dict[str, list[torch.Tensor]] = {}
+    critic_cfg = (config or {}).get("critic", {})
+    rank_enabled = bool(critic_cfg.get("rank_consensus_enabled", False))
+    rank_generator = torch.Generator(device=device).manual_seed(
+        int((config or {}).get("training", {}).get("seed", 0)) + 7919
+    )
     for start in range(0, batch.batch_size, batch_size):
         indices = torch.arange(start, min(start + batch_size, batch.batch_size))
         sample = batch.index_select(indices).to(device)
         if isinstance(critic, (MultiHeadUdivlCritic, MultiHeadScalarQCritic)):
             features = critic.encode_state(sample)
-            q_values = critic.q_from_features(features, sample.action_chunks, sample.execution_masks)
+            if (
+                isinstance(critic, MultiHeadUdivlCritic)
+                and critic.core.q_representation == "categorical"
+            ):
+                q_logits = critic.q_logits_from_features(
+                    features,
+                    sample.action_chunks,
+                    sample.execution_masks,
+                )
+                q_values = decode_categorical_q(q_logits, critic.core.q_support)
+                diagnostic_chunks.setdefault("q_entropy", []).append(
+                    categorical_q_entropy(q_logits).detach().cpu()
+                )
+            else:
+                q_values = critic.q_from_features(
+                    features,
+                    sample.action_chunks,
+                    sample.execution_masks,
+                )
             probabilities = (
                 torch.softmax(critic.value_logits_from_features(features), dim=-1)
                 if isinstance(critic, MultiHeadUdivlCritic)
                 else None
             )
+            if rank_enabled and isinstance(critic, MultiHeadUdivlCritic):
+                action_pool = critic.core.action_pool
+                strong, random = ranking_action_negatives(
+                    sample.action_chunks,
+                    sample.execution_masks,
+                    action_mean=action_pool.action_mean,
+                    action_std=action_pool.action_std,
+                    action_min=action_pool.action_min,
+                    action_max=action_pool.action_max,
+                    noise_sigma=float(critic_cfg.get("rank_noise_sigma", 0.15)),
+                    generator=rank_generator,
+                )
+                negatives = []
+                if bool(critic_cfg.get("rank_use_strong_noise", True)):
+                    negatives.append(strong)
+                if bool(critic_cfg.get("rank_use_random_negative", True)):
+                    negatives.append(random)
+                if negatives:
+                    negative_actions = torch.cat(negatives, dim=0)
+                    negative_masks = sample.execution_masks.repeat(len(negatives), 1)
+                    negative_features = type(features)(
+                        readout=features.readout.repeat(len(negatives), 1)
+                    )
+                    negative_q = critic.q_from_features(
+                        negative_features,
+                        negative_actions,
+                        negative_masks,
+                    ).reshape(critic.ensemble_size, len(negatives), sample.batch_size)
+                    margins = q_values.unsqueeze(1) - negative_q
+                    valid = (
+                        sample.successes.bool()
+                        if bool(critic_cfg.get("rank_only_success", True))
+                        else torch.ones(sample.batch_size, device=device, dtype=torch.bool)
+                    )
+                    diagnostic_chunks.setdefault("rank_margins", []).append(
+                        margins[:, :, valid].detach().cpu()
+                    )
         else:
             q_values = critic(sample.observations, sample.action_chunks, sample.execution_masks)
             probabilities = divl(sample.observations) if divl is not None else None
@@ -37,10 +104,18 @@ def _critic_predictions(
         if probabilities is not None:
             probability_chunks.append(probabilities.detach().cpu())
     q_values = torch.cat(q_chunks, dim=1)
-    if not probability_chunks:
-        return q_values, None
-    probability_batch_dim = 1 if probability_chunks[0].ndim == 3 else 0
-    return q_values, torch.cat(probability_chunks, dim=probability_batch_dim)
+    probabilities = None
+    if probability_chunks:
+        probability_batch_dim = 1 if probability_chunks[0].ndim == 3 else 0
+        probabilities = torch.cat(probability_chunks, dim=probability_batch_dim)
+    diagnostics: dict[str, torch.Tensor] = {}
+    if diagnostic_chunks.get("q_entropy"):
+        diagnostics["q_entropy"] = torch.cat(diagnostic_chunks["q_entropy"], dim=1)
+    if diagnostic_chunks.get("rank_margins"):
+        diagnostics["rank_margins"] = torch.cat(
+            diagnostic_chunks["rank_margins"], dim=2
+        )
+    return q_values, probabilities, diagnostics
 
 
 def _correlation(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -69,14 +144,16 @@ def offline_calibration_metrics(
     divl=None,
     conformal_scale: float = 1.0,
     inference_batch_size: int | None = None,
+    config: dict | None = None,
 ) -> dict[str, float]:
     was_training = critic.training
     critic.eval()
-    q_values, probs = _critic_predictions(
+    q_values, probs, diagnostics = _critic_predictions(
         critic,
         batch,
         divl=divl,
         inference_batch_size=inference_batch_size,
+        config=config,
     )
     q_mean, q_std = ensemble_mean_std(q_values)
     target_is_mc = batch.mc_returns is not None
@@ -130,6 +207,32 @@ def offline_calibration_metrics(
         metrics["categorical_saturation"] = float(
             ((probs[..., 0] + probs[..., -1]) > 0.5).float().mean().item()
         )
+    if "q_entropy" in diagnostics:
+        metrics["critic/q_entropy_mean"] = float(diagnostics["q_entropy"].mean().item())
+    if "rank_margins" in diagnostics:
+        margins = diagnostics["rank_margins"]
+        pair_count = margins.shape[1] * margins.shape[2]
+        if pair_count:
+            for member in range(min(3, margins.shape[0])):
+                metrics[f"critic/rank_acc_q{member + 1}"] = float(
+                    (margins[member] > 0.0).float().mean().item()
+                )
+            metrics["critic/rank_acc_mean"] = float(
+                (margins.mean(dim=0) > 0.0).float().mean().item()
+            )
+            metrics["critic/rank_acc_unanimous"] = float(
+                (margins > 0.0).all(dim=0).float().mean().item()
+            )
+            critic_cfg = (config or {}).get("critic", {})
+            bin_width = (
+                float(critic_cfg.get("q_vmax", 1.1))
+                - float(critic_cfg.get("q_vmin", -0.1))
+            ) / (int(critic_cfg.get("q_num_bins", 201)) - 1)
+            margin = float(critic_cfg.get("rank_margin_bins", 2.0)) * bin_width
+            metrics["critic/rank_margin_satisfied"] = float(
+                (margins.min(dim=0).values > margin).float().mean().item()
+            )
+            metrics["critic/rank_pair_count"] = float(pair_count)
     critic.train(was_training)
     return metrics
 
@@ -144,10 +247,11 @@ def fit_conformal_calibration(
 ) -> float:
     was_training = state.critic.training
     state.critic.eval()
-    q_values, _ = _critic_predictions(
+    q_values, _, _ = _critic_predictions(
         state.critic,
         batch,
         inference_batch_size=inference_batch_size,
+        config=config,
     )
     q_mean, q_std = ensemble_mean_std(q_values)
     uncertainty_cfg = config.get("uncertainty", {})
@@ -180,5 +284,15 @@ def validation_metrics_for_training(state, batch: ChunkBatch, config: dict) -> d
         divl=state.divl if bool(config.get("divl", {}).get("enabled", True)) else None,
         conformal_scale=state.conformal_scale,
         inference_batch_size=inference_batch_size,
+        config=config,
     )
-    return {f"validation_{key}": value for key, value in metrics.items()}
+    validation = {f"validation_{key}": value for key, value in metrics.items()}
+    validation.update(
+        {
+            key: value
+            for key, value in metrics.items()
+            if key.startswith("critic/rank_acc_")
+            or key == "critic/rank_margin_satisfied"
+        }
+    )
+    return validation

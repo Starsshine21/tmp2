@@ -159,13 +159,11 @@ def value_train(
         processor_kwargs["preprocessor_overrides"]["rename_observations_processor"] = {
             "rename_map": cfg.rename_map
         }
-        postprocessor_kwargs["postprocessor_overrides"] = {
-            "unnormalizer_processor": {
-                "stats": dataset.meta.stats,
-                "features": cfg.value.output_features or {},
-                "norm_map": cfg.value.normalization_mapping,
-            },
-        }
+        # Pistar06 value checkpoints intentionally save a device-only
+        # postprocessor: the critic produces scalar values, not normalized
+        # actions.  Injecting an action unnormalizer while resuming therefore
+        # fails strict processor validation because that step is not present in
+        # policy_postprocessor.json.  Load the saved postprocessor unchanged.
 
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=cfg.value,

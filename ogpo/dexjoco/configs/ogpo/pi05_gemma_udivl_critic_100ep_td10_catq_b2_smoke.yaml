@@ -1,0 +1,25 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep_td10_catq_b2_30k_b32.yaml
+
+training:
+  critic_steps: 2
+  batch_size: 4
+  microbatch_size: 2
+  checkpoint_interval: 1
+  latest_checkpoint_path: outputs/ogpo/smoke/click_mouse_divl_td10_catq_b2_latest.pt
+  best_checkpoint_path: null
+  milestone_steps: []
+  milestone_checkpoint_dir: null
+  checkpoint_path: outputs/ogpo/smoke/click_mouse_divl_td10_catq_b2_final.pt
+  metrics_path: outputs/ogpo/smoke/click_mouse_divl_td10_catq_b2_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/smoke/tensorboard/click_mouse_divl_td10_catq_b2
+
+evaluation:
+  interval: 1
+  full_validation: false
+  validation_batch_size: 4
+  fixed_validation_batch: true
+  stratified_validation_batch: true
+  inference_batch_size: 2
+  checkpoint_selection:
+    enabled: false
+

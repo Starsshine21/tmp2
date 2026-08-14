@@ -30,6 +30,7 @@ from dexjoco.ogpo.trainer import (
     apply_scheduled_critic_stage,
     build_train_state,
     critic_update,
+    initialize_critic_from_checkpoint,
     load_checkpoint,
     maybe_advance_critic_stage,
     save_checkpoint,
@@ -176,6 +177,14 @@ def main() -> None:
     if resume:
         load_checkpoint(ROOT / resume, state)
         print(f"[critic] resumed checkpoint: {resume}")
+    else:
+        initial_critic_checkpoint = cfg["training"].get("initial_critic_checkpoint")
+        if initial_critic_checkpoint:
+            initialize_critic_from_checkpoint(ROOT / initial_critic_checkpoint, state)
+            print(
+                f"[critic] initialized model weights from: {initial_critic_checkpoint}",
+                flush=True,
+            )
     writer = create_metrics_writer(
         ROOT / cfg["training"].get("metrics_path", "outputs/ogpo/critic_metrics.jsonl"),
         ROOT / cfg["training"]["tensorboard_dir"] if cfg["training"].get("tensorboard_dir") else None,

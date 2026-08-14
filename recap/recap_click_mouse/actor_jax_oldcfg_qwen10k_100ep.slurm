@@ -3,12 +3,14 @@
 #SBATCH -J recap_jax_g3s2_8g
 #SBATCH -o /nfs_global/S/yangrongzheng/evo-RL/outputs/recap-click-mouse/logs/actor-jax-oldcfg-%j.out
 #SBATCH -e /nfs_global/S/yangrongzheng/evo-RL/outputs/recap-click-mouse/logs/actor-jax-oldcfg-%j.err
-#SBATCH -p r8nv-gpu-hw-80g
+#SBATCH -p r8nv-gpu-hw
 #SBATCH --qos=gpu-normal
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --ntasks=8
 #SBATCH --gres=gpu:8
-#SBATCH --cpus-per-task=64
+#SBATCH --gpus-per-task=1
+#SBATCH --constraint=L40S
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=512G
 #SBATCH -t 1-06:00:00
 
@@ -66,7 +68,7 @@ export NUMEXPR_NUM_THREADS=1
 export HF_HOME=${OUT}/cache/huggingface
 export HF_DATASETS_CACHE=${OUT}/cache/datasets
 export TMPDIR=${SLURM_TMPDIR:-${OUT}/tmp}
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.95
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.80
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export WANDB_MODE=offline
 export OPENPI_RAW_NPZ_ROOT=${RAW_NPZ_ROOT}
@@ -77,10 +79,11 @@ export OPENPI_CKPTS_ROOT=${CKPT_ROOT}
 export PYTHONPATH="${REFERENCE_ROOT}/src:${OPENPI_ROOT}/src:${OPENPI_ROOT}/packages/openpi-client/src"
 unset OPENPI_LEROBOT_ACP_ENABLE OPENPI_LEROBOT_ACP_INDICATOR_DROPOUT_PROB
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+export JAX_COORDINATOR_ADDRESS="$(hostname):$((25000 + SLURM_JOB_ID % 20000))"
 
 echo "actor_jax_oldcfg_start=$(date --iso-8601=seconds)"
 echo "backend=jax config=click_mouse model=pi05 gemma_2b_lora+gemma_300m_lora devices=8"
-echo "per_device_batch=2 global_batch=16 steps=30000 seed=42 action_horizon=30 max_token_len=250"
+echo "per_device_batch=1 global_batch=8 steps=30000 seed=42 action_horizon=30 max_token_len=250"
 echo "optimizer=AdamW peak_lr=5e-5 warmup_steps=10000 decay_steps=1000000 decay_lr=5e-5"
 echo "reference_commit=95f8b6cd3da782b84c41112c91db5c73fa60f705"
 echo "base=${ROOT}/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse/params"
@@ -88,16 +91,16 @@ echo "raw_npz=${OPENPI_RAW_NPZ_ROOT} sidecar=${LEROBOT_ACP_SIDECAR_NPZ} requeste
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 
 cd "${OPENPI_ROOT}"
-"${OPENPI_PY}" -c 'import jax; assert jax.device_count() == 8, jax.devices(); print("jax_devices=", jax.devices())'
-"${OPENPI_PY}" scripts/train.py click_mouse \
+srun --ntasks=8 --gpus-per-task=1 --gpu-bind=map_gpu:0,1,2,3,4,5,6,7 \
+  "${OPENPI_PY}" scripts/train.py click_mouse \
   --exp-name="${EXP_NAME}" \
   --assets-base-dir="${RECAP_ROOT}/runtime/dexjoco/openpi/assets" \
   --weight-loader.params-path="${ROOT}/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse/params" \
   --data.root="${OUT}/data/click_mouse" \
   --overwrite \
-  --batch-size=16 \
+  --batch-size=8 \
   --num-train-steps=30000 \
-  --num-workers=4 \
+  --num-workers=0 \
   --save-interval=10000 \
   --keep-period=10000 \
   --log-interval=100 \

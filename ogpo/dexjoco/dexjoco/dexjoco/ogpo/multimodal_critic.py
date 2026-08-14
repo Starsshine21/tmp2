@@ -5,6 +5,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from .categorical_q import decode_categorical_q
 from .value_critic_protocol import StateFeatures
 
 
@@ -37,6 +38,10 @@ class MaskedTemporalActionPool(nn.Module):
         self.output_norm = nn.LayerNorm(self.hidden_dim)
         self.register_buffer("action_mean", torch.zeros(self.action_dim))
         self.register_buffer("action_std", torch.ones(self.action_dim))
+        # Dataset bounds are rebuilt from replay and intentionally excluded
+        # from state_dict so legacy scalar checkpoints remain strictly loadable.
+        self.register_buffer("action_min", torch.full((self.action_dim,), -1.0), persistent=False)
+        self.register_buffer("action_max", torch.full((self.action_dim,), 1.0), persistent=False)
         nn.init.normal_(self.temporal_positions, std=0.02)
         nn.init.normal_(self.query, std=0.02)
 
@@ -81,7 +86,7 @@ def _prediction_head(input_dim: int, hidden_dim: int, output_dim: int) -> nn.Seq
 
 
 class MultiHeadUdivlCore(nn.Module):
-    """Shared action representation with corresponding scalar-Q and Value heads."""
+    """Shared action representation with corresponding Q and Value heads."""
 
     def __init__(
         self,
@@ -94,6 +99,10 @@ class MultiHeadUdivlCore(nn.Module):
         num_attention_heads: int,
         num_value_atoms: int,
         num_pairs: int = 3,
+        q_representation: str = "scalar",
+        q_num_bins: int = 201,
+        q_vmin: float = -0.1,
+        q_vmax: float = 1.1,
     ):
         super().__init__()
         if num_pairs <= 1:
@@ -101,6 +110,20 @@ class MultiHeadUdivlCore(nn.Module):
         self.state_dim = int(state_dim)
         self.num_pairs = int(num_pairs)
         self.num_value_atoms = int(num_value_atoms)
+        self.q_representation = str(q_representation).lower()
+        if self.q_representation not in {"scalar", "categorical"}:
+            raise ValueError("q_representation must be 'scalar' or 'categorical'")
+        if self.q_representation == "categorical":
+            if int(q_num_bins) < 2 or not float(q_vmin) < float(q_vmax):
+                raise ValueError("categorical Q requires valid bins and support bounds")
+            self.register_buffer(
+                "q_support",
+                torch.linspace(float(q_vmin), float(q_vmax), int(q_num_bins)),
+            )
+            q_output_dim = int(q_num_bins)
+        else:
+            self.q_support = None
+            q_output_dim = 1
         self.action_pool = MaskedTemporalActionPool(
             action_dim,
             action_hidden_dim,
@@ -109,7 +132,10 @@ class MultiHeadUdivlCore(nn.Module):
         )
         q_input_dim = self.state_dim + int(action_hidden_dim)
         self.q_heads = nn.ModuleList(
-            [_prediction_head(q_input_dim, head_hidden_dim, 1) for _ in range(self.num_pairs)]
+            [
+                _prediction_head(q_input_dim, head_hidden_dim, q_output_dim)
+                for _ in range(self.num_pairs)
+            ]
         )
         self.value_heads = nn.ModuleList(
             [
@@ -122,7 +148,7 @@ class MultiHeadUdivlCore(nn.Module):
     def ensemble_size(self) -> int:
         return self.num_pairs
 
-    def q_from_readout(
+    def _q_head_outputs_from_readout(
         self,
         readout: torch.Tensor,
         action_chunks: torch.Tensor,
@@ -137,7 +163,29 @@ class MultiHeadUdivlCore(nn.Module):
         if readout.shape[0] != action_features.shape[0]:
             raise ValueError("state and action batch sizes must match")
         fused = torch.cat([readout, action_features], dim=-1)
-        return torch.stack([head(fused).squeeze(-1) for head in self.q_heads], dim=0)
+        return torch.stack([head(fused) for head in self.q_heads], dim=0)
+
+    def q_logits_from_readout(
+        self,
+        readout: torch.Tensor,
+        action_chunks: torch.Tensor,
+        execution_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.q_representation != "categorical":
+            raise RuntimeError("q_logits are only available for categorical Q")
+        return self._q_head_outputs_from_readout(readout, action_chunks, execution_masks)
+
+    def q_from_readout(
+        self,
+        readout: torch.Tensor,
+        action_chunks: torch.Tensor,
+        execution_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        outputs = self._q_head_outputs_from_readout(readout, action_chunks, execution_masks)
+        if self.q_representation == "scalar":
+            return outputs.squeeze(-1)
+        assert self.q_support is not None
+        return decode_categorical_q(outputs, self.q_support)
 
     def value_logits_from_readout(self, readout: torch.Tensor) -> torch.Tensor:
         if readout.ndim != 2 or readout.shape[-1] != self.state_dim:
@@ -170,6 +218,14 @@ class MultiHeadUdivlCritic(nn.Module):
         execution_masks: torch.Tensor,
     ) -> torch.Tensor:
         return self.core.q_from_readout(features.readout, action_chunks, execution_masks)
+
+    def q_logits_from_features(
+        self,
+        features: StateFeatures,
+        action_chunks: torch.Tensor,
+        execution_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.core.q_logits_from_readout(features.readout, action_chunks, execution_masks)
 
     def value_logits_from_features(self, features: StateFeatures) -> torch.Tensor:
         return self.core.value_logits_from_readout(features.readout)

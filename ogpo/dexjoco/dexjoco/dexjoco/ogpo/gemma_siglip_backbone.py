@@ -340,17 +340,25 @@ def build_gemma_siglip_critic(batch: Any, config: dict[str, Any]):
         num_attention_heads=int(critic_cfg.get("action_attention_heads", 8)),
         num_value_atoms=int(config.get("divl", {}).get("num_atoms", 51)),
         num_pairs=int(critic_cfg.get("ensemble_size", 3)),
+        q_representation=str(critic_cfg.get("q_representation", "scalar")),
+        q_num_bins=int(critic_cfg.get("q_num_bins", 201)),
+        q_vmin=float(critic_cfg.get("q_vmin", -0.1)),
+        q_vmax=float(critic_cfg.get("q_vmax", 1.1)),
     )
     executed_actions = batch.action_chunks[batch.execution_masks.bool()]
     with torch.no_grad():
         core.action_pool.action_mean.copy_(executed_actions.mean(dim=0))
         core.action_pool.action_std.copy_(executed_actions.std(dim=0, unbiased=False).clamp_min(1e-6))
+        core.action_pool.action_min.copy_(executed_actions.min(dim=0).values)
+        core.action_pool.action_max.copy_(executed_actions.max(dim=0).values)
     critic = MultiHeadUdivlCritic(backbone, core)
     critic.model_metadata = {
         "gemma_path": str(backbone_cfg["gemma_path"]),
         "siglip_path": str(backbone_cfg["siglip_path"]),
         "camera_keys": camera_keys,
         "dtype": dtype_name,
+        "q_representation": core.q_representation,
+        "q_num_bins": int(core.q_support.numel()) if core.q_support is not None else 1,
     }
     return critic
 
@@ -402,6 +410,8 @@ def build_gemma_siglip_scalar_q_critic(batch: Any, config: dict[str, Any]):
         core.action_pool.action_std.copy_(
             executed_actions.std(dim=0, unbiased=False).clamp_min(1e-6)
         )
+        core.action_pool.action_min.copy_(executed_actions.min(dim=0).values)
+        core.action_pool.action_max.copy_(executed_actions.max(dim=0).values)
     critic = MultiHeadScalarQCritic(backbone, core)
     critic_stage = str(critic_cfg.get("stage", "head_td"))
     if critic_stage == "full_td" and not train_vlm_full:
