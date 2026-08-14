@@ -1,0 +1,14 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_accel_resume250_smoke10.yaml
+
+# Resume completed step 450 and run 10000 additional actor iterations, ending
+# at completed step 10450. Save every 500 completed steps to limit storage.
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0450/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  actor_start_step: 450
+  actor_steps: 10000
+  checkpoint_interval: 500
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_10000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_10000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_10000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_10000

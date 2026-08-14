@@ -1,0 +1,18 @@
+include: configs/ogpo/pi05_ogpo_origin_actor_100ep.yaml
+
+data:
+  origin_feature_cache:
+    enabled: false
+
+actor:
+  group_size: 2
+  gradient_microbatch_size: 1
+
+training:
+  actor_steps: 1
+  batch_size: 1
+  checkpoint_interval: 1
+  critic_checkpoint: outputs/ogpo-origin/smoke/click_mouse_origin_critic.pt
+  checkpoint_path: outputs/ogpo-origin/smoke/click_mouse_origin_actor.pt
+  metrics_path: outputs/ogpo-origin/smoke/click_mouse_origin_actor_metrics.jsonl
+  tensorboard_dir:

@@ -1,0 +1,22 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+# Official OGPO takes one optimizer step per freshly sampled group, while the
+# rollout policy follows the actor with Polyak coefficient tau=0.005.
+actor:
+  actor_epochs_per_rollout: 1
+  old_policy_sync_period: 1
+  old_policy_ema: 0.995
+  ppo_clip_min: 0.01
+  ppo_clip_max: 0.01
+  # Official OGPO averages the chain log-ratio over both denoising steps and
+  # action dimensions. Flash samples one denoising step, so only this factor
+  # remains here.
+  normalize_logprob_by_action_dim: true
+
+training:
+  actor_start_step: 0
+  actor_steps: 3
+  checkpoint_interval: 3
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpoema_norm_smoke3.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpoema_norm_smoke3_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpoema_norm_smoke3

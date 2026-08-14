@@ -1,0 +1,16 @@
+include: configs/ogpo/pi05_critic_udivl.yaml
+
+critic:
+  hidden_dim: 128
+  warmup_steps: 10
+
+training:
+  device: cpu
+  critic_steps: 10
+  batch_size: 32
+  checkpoint_path: outputs/ogpo/click_mouse_udivl_real_replay_smoke.pt
+  metrics_path: outputs/ogpo/click_mouse_udivl_real_replay_smoke_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_udivl_real_replay_smoke
+
+evaluation:
+  interval: 5

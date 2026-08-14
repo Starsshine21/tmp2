@@ -1,0 +1,24 @@
+include: configs/ogpo/pi05_full_ogpo.yaml
+method: scalar_q_ensemble_full
+critic:
+  ensemble_size: 3
+  lambda_mc: 1.0
+divl:
+  enabled: false
+  loss_weight: 0.0
+actor:
+  algorithm: full_ogpo
+  advantage_mode: sign_consensus
+uncertainty:
+  use_conformal: false
+  entropy_scale: 0.0
+  entropy_skip_threshold: 1.1
+  consensus_skip_threshold: -1.0
+  use_support_weight: false
+regularization:
+  kl_uncertainty_scale: 0.0
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_scalar_q_ensemble_full.pt
+  metrics_path: outputs/ogpo/click_mouse_scalar_q_ensemble_full_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_scalar_q_ensemble_full

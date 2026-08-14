@@ -1,0 +1,109 @@
+include: configs/ogpo/pi05_jax_flash_ogpo.yaml
+
+method:
+  name: ogpo-origin
+  paper: arxiv:2605.03065v1
+  implementation_reference: simchowitzlabpublic/OGPO_public
+
+data:
+  dataset_path: outputs/ogpo/click_mouse_pi05_replay_100ep_train.pt
+  validation_path: outputs/ogpo/click_mouse_pi05_replay_100ep_validation.pt
+  language: "Move the mouse to the purple mouse pad and click the left mouse button."
+  gamma: 0.9999
+  origin_feature_cache:
+    enabled: false
+    train_path: outputs/ogpo-origin/cache/click_mouse_origin_train_features.pt
+    validation_path: outputs/ogpo-origin/cache/click_mouse_origin_validation_features.pt
+    batch_size: 8
+
+critic:
+  architecture: gemma_siglip_scalar_q
+  ensemble_size: 10
+  stage: full_td
+  stage_schedule: []
+  action_hidden_dim: 256
+  action_attention_heads: 8
+  head_hidden_dim: 512
+  q_loss: mse
+  target_mode: mc_return
+  bootstrap_target: ensemble_mean
+  reference_value_samples: 0
+  lambda_mc: 1.0
+  target_tau: 0.05
+  target_update_period: 1
+  learning_rate: 0.0003
+  weight_decay: 0.00001
+  max_grad_norm: 5.0
+  steps_per_actor_step: 0
+  force_actor: true
+  backbone:
+    gemma_path: /nfs_global/S/yangrongzheng/evo-RL/Evo-RL/local_models/gemma-3-270m
+    siglip_path: /nfs_global/S/yangrongzheng/evo-RL/Evo-RL/local_models/siglip2-so400m-patch14-224-fixed
+    camera_keys: [image_base, image_wrist]
+    dtype: bfloat16
+    max_language_tokens: 64
+    train_siglip: true
+    train_vlm_full: true
+    gradient_checkpointing: true
+
+divl:
+  enabled: false
+  auto_support: false
+  num_atoms: 2
+  v_min: 0.0
+  v_max: 1.0
+
+uncertainty:
+  adapt_ppo_clip: false
+  adapt_kl_beta: false
+  use_conformal: false
+  entropy_scale: 0.0
+  entropy_skip_threshold: 1.1
+  consensus_skip_threshold: -1.0
+  use_support_weight: false
+  lambda_epi: 0.0
+  lambda_support: 0.0
+
+actor:
+  algorithm: full_ogpo
+  advantage_mode: group_mean
+  optimizer: adafactor
+  group_size: 32
+  learning_rate: 0.000045
+  weight_decay: 0.0
+  old_policy_sync_period: 1
+  old_policy_ema: 0.95
+  full_ratio_mode: ais_joint
+  ppo_clip_chain: 0.01
+  ppo_clip_min: 0.01
+  ppo_clip_max: 0.01
+  actor_epochs_per_rollout: 1
+  max_grad_norm: 1.0
+  gradient_microbatch_size: 1
+  max_policy_reference_kl: 1000000.0
+  max_critic_disagreement: 1000000.0
+  max_support_distance: 1000000.0
+
+flow:
+  adapter: pi05_jax
+  checkpoint_dir: /nfs_global/S/yangrongzheng/evo-RL/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse
+  train_config: click_mouse
+  image_mapping:
+    base: image_base
+    wrist: image_wrist
+  num_steps: 10
+  stochastic_variance: 0.000025
+  sde_mode: ogpo_corrected
+  temporal_rectification_mode: none
+
+regularization:
+  beta_kl: 0.0
+  lambda_fm: 0.0
+  lambda_success: 0.0
+  lambda_smooth: 0.0
+
+evaluation:
+  tasks: [click_mouse]
+  dexjoco_tasks: [click_mouse]
+  policy_dir: /nfs_global/S/yangrongzheng/evo-RL/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse
+  best_of_n: 1

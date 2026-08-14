@@ -1,0 +1,8 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+# Independent retry after releasing the success-BC gradient tree and clearing
+# JAX executable caches only on steps that run the auxiliary BC backward.
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_smoke10_gc.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_smoke10_gc_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_smoke10_gc

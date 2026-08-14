@@ -1,0 +1,3 @@
+ablation: group_normalization
+actor:
+  advantage_mode: group_normalization

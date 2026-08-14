@@ -1,0 +1,21 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+# Match the official OGPO PPO update semantics: each outer update samples a
+# fresh group from a lagged target actor, takes one gradient step, then moves
+# the target actor 0.5% toward the current actor. In this repository the EMA
+# coefficient multiplies the old parameters, hence 1 - 0.005 = 0.995.
+actor:
+  actor_epochs_per_rollout: 1
+  old_policy_sync_period: 1
+  old_policy_ema: 0.995
+  ppo_clip_min: 0.01
+  ppo_clip_max: 0.01
+  normalize_logprob_by_action_dim: true
+
+training:
+  actor_start_step: 0
+  actor_steps: 3
+  checkpoint_interval: 3
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpoema_smoke3.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpoema_smoke3_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpoema_smoke3

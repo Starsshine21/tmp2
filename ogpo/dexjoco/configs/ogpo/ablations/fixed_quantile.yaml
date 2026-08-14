@@ -1,0 +1,5 @@
+ablation: fixed_quantile
+divl:
+  use_adaptive_quantile: false
+  alpha_min: 0.7
+  alpha_max: 0.7

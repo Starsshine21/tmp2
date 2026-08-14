@@ -1,0 +1,9 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep.yaml
+
+training:
+  # Loaded from the 15k checkpoint via --resume, so these are 15k additional
+  # optimizer steps and the resulting state.training_step is 30k.
+  critic_steps: 15000
+  checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_30k.pt
+  metrics_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_continue_15k_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_gemma_udivl_100ep_continue_15k

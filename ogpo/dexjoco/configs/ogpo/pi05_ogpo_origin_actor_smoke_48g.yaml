@@ -1,0 +1,6 @@
+include: configs/ogpo/pi05_ogpo_origin_actor_smoke.yaml
+
+training:
+  checkpoint_path: outputs/ogpo-origin/smoke48g/click_mouse_origin_actor.pt
+  metrics_path: outputs/ogpo-origin/smoke48g/click_mouse_origin_actor_metrics.jsonl
+  tensorboard_dir:

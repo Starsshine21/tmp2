@@ -1,0 +1,14 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_accel_resume250_smoke10.yaml
+
+# 2000-step continuation resuming from the step-250 checkpoint produced by
+# the 4-GPU tgr run. Loss terms, sampling, KL guard, success BC, the 8-GPU
+# rollout pmap, persistent cache, and memory lifetime fixes are inherited
+# unchanged from the smoke config (which itself inherits the 4-GPU route).
+training:
+  actor_steps: 2000
+  checkpoint_interval: 50
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_2000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_2000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_2000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_2000

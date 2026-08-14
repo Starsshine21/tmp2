@@ -1,0 +1,5 @@
+ablation: conformal_uncertainty
+uncertainty:
+  use_conformal: true
+  conformal_delta: 0.1
+  min_calibration_samples: 32

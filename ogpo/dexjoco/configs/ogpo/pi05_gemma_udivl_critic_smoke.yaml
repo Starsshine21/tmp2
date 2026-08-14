@@ -1,0 +1,11 @@
+include: configs/ogpo/pi05_gemma_udivl_critic.yaml
+
+critic:
+  stage: gemma_lora_td
+  reference_value_samples: 0
+  bootstrap_target: subsample_min
+
+training:
+  device: cuda
+  batch_size: 1
+  checkpoint_path: outputs/ogpo/pi05_gemma_udivl_gpu_smoke.pt

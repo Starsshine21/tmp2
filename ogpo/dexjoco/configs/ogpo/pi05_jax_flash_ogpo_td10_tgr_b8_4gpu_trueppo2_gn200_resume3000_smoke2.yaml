@@ -1,0 +1,20 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_smoke2.yaml
+
+# d05 currently has one unusable CUDA device. This smoke reserves the node but
+# exposes four healthy 80GB GPUs; the effective batch remains 8 x 4 = 32.
+actor:
+  data_parallel_devices: 4
+  gradient_microbatch_size: 32
+  rollout_state_microbatch_size: 8
+  kl_eval_microbatch_size: 32
+  parallel_frozen_statistics: true
+  old_statistics_device_index: 1
+  reference_statistics_device_index: 2
+  regularization_device_index: 3
+  fixed_statistics_microbatch_size: 16
+
+training:
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_trueppo2_gn200_resume3000_smoke2
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_trueppo2_gn200_resume3000_smoke2_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_trueppo2_gn200_resume3000_smoke2_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_trueppo2_gn200_resume3000_smoke2

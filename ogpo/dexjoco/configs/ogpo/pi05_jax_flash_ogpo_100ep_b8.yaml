@@ -1,0 +1,25 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_100ep.yaml
+
+training:
+  actor_steps: 500
+  batch_size: 8
+  checkpoint_interval: 10
+  critic_checkpoint: outputs/ogpo/click_mouse_gemma_udivl_100ep_warmup_b32_calibrated.pt
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_100ep_b8.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_100ep_b8_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_100ep_b8
+
+actor:
+  candidate_group_size: 4
+  # The effective candidate batch is 8 states * 4 candidates = 32. PI0.5
+  # rollout and backward remain microbatched to fit the single A100-80GB task.
+  rollout_state_microbatch_size: 2
+  gradient_microbatch_size: 2
+  kl_eval_microbatch_size: 4
+
+regularization:
+  success_update_period: 4
+  success_batch_size: 1
+
+flow:
+  num_steps: 8

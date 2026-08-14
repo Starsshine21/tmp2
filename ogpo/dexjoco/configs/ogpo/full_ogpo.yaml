@@ -1,0 +1,25 @@
+include: configs/ogpo/critic_udivl.yaml
+actor:
+  algorithm: full_ogpo
+  group_size: 4
+  hidden_dim: 128
+  learning_rate: 0.0001
+  ppo_clip_min: 0.05
+  ppo_clip_max: 0.15
+  advantage_clip: 5.0
+  actor_epochs_per_rollout: 1
+  old_policy_sync_period: 1
+  old_policy_ema: 0.0
+  max_grad_norm: 1.0
+  max_policy_reference_kl: 0.5
+flow:
+  adapter: gaussian_openpi
+  convention: openpi_pi05_euler
+  num_steps: 6
+  stochastic_variance: 0.04
+training:
+  actor_steps: 2
+  batch_size: 16
+  output_dir: outputs/ogpo
+  checkpoint_path: outputs/ogpo/full_ogpo_smoke.pt
+  metrics_path: outputs/ogpo/full_metrics.jsonl

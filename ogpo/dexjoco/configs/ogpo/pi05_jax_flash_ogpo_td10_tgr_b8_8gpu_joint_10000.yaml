@@ -1,0 +1,39 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_accel_resume250_smoke10.yaml
+
+# PI0.5 actor extraction with slow critic tracking on the fixed balanced replay.
+# The critic starts from the selected TD10 checkpoint embedded in the actor
+# checkpoint. A 25:1 actor/critic update ratio limits replay overfitting while
+# preventing a completely static verifier over a long actor run.
+critic:
+  # Keep updating the critic, but do not let noisy offline validation metrics
+  # stop actor training. Critic quality remains observable in offline evals.
+  gate_enabled: false
+  steps_per_actor_step: 0
+  update_period_actor_steps: 25
+  steps_per_refresh: 1
+  refresh_batch_size: 32
+  refresh_microbatch_size: 8
+  refresh_learning_rate: 0.00001
+  lr_schedule: constant
+  offload_refresh_state_between_updates: true
+  clear_jax_cache_before_refresh: true
+  refresh_sampling:
+    balanced: true
+    uniform_fraction: 0.5
+    success_fraction: 0.25
+    terminal_success_fraction: 0.125
+    failure_fraction: 0.125
+
+actor:
+  stabilize_single_epoch_bf16_statistics: true
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_10000/step_7500/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_10000_final.pt
+  actor_start_step: 7500
+  actor_steps: 10000
+  checkpoint_interval: 500
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_joint_10000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_joint_10000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_joint_10000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_joint_10000

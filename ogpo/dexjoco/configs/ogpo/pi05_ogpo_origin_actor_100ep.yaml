@@ -1,0 +1,16 @@
+include: configs/ogpo/pi05_ogpo_origin_common.yaml
+
+data:
+  origin_feature_cache:
+    enabled: false
+
+training:
+  device: cuda
+  seed: 0
+  actor_steps: 500
+  batch_size: 1
+  checkpoint_interval: 10
+  critic_checkpoint: outputs/ogpo-origin/click_mouse_pi05_origin_mc_full_critic_30k.pt
+  checkpoint_path: outputs/ogpo-origin/click_mouse_pi05_origin_mc_full_actor_500.pt
+  metrics_path: outputs/ogpo-origin/click_mouse_pi05_origin_mc_full_actor_500_metrics.jsonl
+  tensorboard_dir: outputs/ogpo-origin/tensorboard/click_mouse_pi05_origin_mc_full_actor_500

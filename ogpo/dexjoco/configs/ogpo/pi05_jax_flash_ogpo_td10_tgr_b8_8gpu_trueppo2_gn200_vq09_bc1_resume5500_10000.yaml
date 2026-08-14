@@ -1,0 +1,28 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000.yaml
+
+# Use the conservative upper quantile from the frozen DIVL distribution. This
+# keeps the three-head two-sided rule while avoiding the old positive bias.
+divl:
+  alpha_min: 0.9
+  alpha_max: 0.9
+  use_adaptive_quantile: false
+
+# OGPO+ success-buffer anchoring. A high component ceiling only catches rare
+# batch-size-one outliers; ordinary BC gradients remain unchanged.
+regularization:
+  lambda_success: 1.0
+  success_weighted_grad_max_norm: 10.0
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000/step_5500/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000_final.pt
+  reset_actor_optimizer_on_resume: false
+  sync_old_policy_on_resume: true
+  actor_start_step: 5500
+  # actor_steps is a count: 4500 updates finish at completed step 10000.
+  actor_steps: 4500
+  checkpoint_interval: 500
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_vq09_bc1_resume5500_10000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_vq09_bc1_resume5500_10000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_vq09_bc1_resume5500_10000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_vq09_bc1_resume5500_10000

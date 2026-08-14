@@ -1,0 +1,9 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_100ep_b8.yaml
+
+# Formal OGPO-DIVL actor route paired with the balanced 10-step TD critic.
+training:
+  critic_checkpoint: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_balanced_30k_b32_best_calibrated.pt
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8
+

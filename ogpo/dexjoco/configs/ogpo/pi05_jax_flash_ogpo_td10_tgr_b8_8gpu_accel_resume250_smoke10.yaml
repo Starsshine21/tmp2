@@ -1,0 +1,46 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_4gpu_500.yaml
+
+# Performance-only route: loss terms, sampling distribution, candidate count,
+# optimizer, KL guard, and success-buffer BC are inherited unchanged.
+regularization:
+  success_update_period: 1
+
+actor:
+  # Eight devices process the same 8 states x 4 candidates as the four-GPU
+  # route. Only the candidates per device change (8 -> 4).
+  data_parallel_devices: 8
+  gradient_microbatch_size: 32
+  rollout_state_microbatch_size: 8
+  kl_eval_microbatch_size: 32
+
+  # Frozen old/reference forwards and success BC are independent and run on
+  # dedicated devices. Their small outputs are consolidated on host before
+  # entering pmap, avoiding JAX 0.5.3's cross-device concatenate cache issue.
+  parallel_frozen_statistics: true
+  old_statistics_device_index: 1
+  reference_statistics_device_index: 2
+  regularization_device_index: 3
+  fixed_statistics_microbatch_size: 16
+
+  # Average gradients with an in-pmap collective instead of serially copying
+  # eight full PI0.5 gradient trees to GPU0. This is mathematically the same
+  # mean reduction and the A100-80GB layout has ample collective workspace.
+  distributed_gradient_reduction: pmean
+
+  jax_clear_caches_between_steps: false
+  jax_clear_caches_after_success_update: false
+  # Lifetime fixes make routine clearing unnecessary. Keep a conservative
+  # fallback and an allocation-based guard for this first 8-GPU validation.
+  jax_clear_caches_period: 10
+  jax_clear_caches_bytes_in_use_threshold: 30000000000
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0250/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  actor_start_step: 250
+  actor_steps: 10
+  checkpoint_interval: 10
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_smoke10
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_smoke10_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_smoke10_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_smoke10

@@ -1,0 +1,32 @@
+include: configs/ogpo/critic_udivl.yaml
+
+data:
+  dataset_path: outputs/ogpo/click_mouse_pi05_replay_train.pt
+  validation_path: outputs/ogpo/click_mouse_pi05_replay_validation.pt
+  generated_horizon: 30
+  executed_horizon: 4
+  use_execution_mask: true
+
+critic:
+  hidden_dim: 512
+  warmup_steps: 10000
+  steps_per_actor_step: 4
+  min_ranking_accuracy: 0.55
+  min_coverage: 0.8
+  force_actor: false
+
+divl:
+  auto_support: true
+  support_margin_fraction: 0.05
+
+training:
+  device: cuda
+  critic_steps: 10000
+  batch_size: 128
+  checkpoint_path: outputs/ogpo/click_mouse_udivl.pt
+  metrics_path: outputs/ogpo/click_mouse_udivl_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_udivl
+
+evaluation:
+  tasks: [click_mouse]
+  dexjoco_tasks: [click_mouse]

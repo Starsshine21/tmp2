@@ -1,0 +1,29 @@
+include: configs/ogpo/critic_udivl.yaml
+
+data:
+  dataset_path: outputs/ogpo/smoke_replay_train.pt
+  validation_path: outputs/ogpo/smoke_replay_validation.pt
+
+critic:
+  ensemble_size: 1
+  lambda_mc: 1.0
+
+divl:
+  enabled: false
+  loss_weight: 0.0
+
+actor:
+  algorithm: awr
+  hidden_dim: 128
+  learning_rate: 0.0001
+  awr_temperature: 1.0
+  awr_max_weight: 20.0
+  old_policy_sync_period: 1
+  old_policy_ema: 0.0
+  max_grad_norm: 1.0
+
+training:
+  actor_steps: 2
+  checkpoint_path: outputs/ogpo/awr_smoke.pt
+  metrics_path: outputs/ogpo/awr_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/awr

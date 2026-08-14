@@ -1,0 +1,6 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_4gpu_500.yaml
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0050/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  actor_start_step: 50
+  actor_steps: 450

@@ -1,0 +1,10 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_4gpu_resume100_ogpo_bc.yaml
+
+training:
+  actor_steps: 5
+  checkpoint_interval: 5
+  keep_periodic_checkpoints: false
+  checkpoint_path: outputs/ogpo/smoke/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_resume100_ogpo_bc_bfc_smoke5.pt
+  metrics_path: outputs/ogpo/smoke/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_resume100_ogpo_bc_bfc_smoke5_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_resume100_ogpo_bc_bfc_smoke5
+

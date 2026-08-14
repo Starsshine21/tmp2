@@ -1,0 +1,30 @@
+data:
+  source: synthetic  # synthetic | zarr
+  dataset_path: outputs/ogpo/smoke_replay.pt
+  input_zarr_root: null
+  action_key: action_rotvec
+  fallback_action_key: action
+  state_key: state
+  # Omit to auto-detect synchronized [T,H,W,C] arrays in replay.zarr.
+  image_keys: null
+  reward_key: reward
+  done_key: done
+  success_key: success
+  generated_horizon: 6
+  executed_horizon: 3
+  n_step: 1
+  stride: null
+  action_dim: 3
+  obs_dim: 12
+  proprio_dim: 4
+  num_samples: 64
+  gamma: 0.97
+  seed: 7
+  train_ratio: 0.8
+  validation_ratio: 0.1
+  success_sampling_ratio: 0.5
+  terminal_success_reward: 1.0
+  task_id: synthetic_task
+  language: "move toward the synthetic target"
+  behavior_policy: synthetic_behavior
+  success_from_path: true

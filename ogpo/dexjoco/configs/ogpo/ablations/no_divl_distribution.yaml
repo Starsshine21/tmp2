@@ -1,0 +1,6 @@
+ablation: no_divl_distribution
+divl:
+  enabled: false
+  loss_weight: 0.0
+critic:
+  lambda_mc: 1.0

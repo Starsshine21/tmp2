@@ -1,0 +1,13 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_4gpu_500.yaml
+
+actor:
+  # Keep compiled PPO and success-BC executables resident. Explicit Python/JAX
+  # garbage collection remains enabled, while KL rejection still performs its
+  # defensive cleanup because it temporarily owns a second actor state.
+  jax_clear_caches_after_success_update: false
+  jax_clear_caches_period: 0
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0100/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  actor_start_step: 100
+  actor_steps: 400

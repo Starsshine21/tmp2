@@ -1,0 +1,25 @@
+data:
+  source: zarr
+  dataset_path: outputs/ogpo/click_mouse_pi05_replay_100ep.pt
+  input_zarr_root: outputs/pi05_rollouts
+  action_key: action_rotvec
+  fallback_action_key: action
+  state_key: state
+  image_keys: [image_base, image_wrist]
+  reward_key: reward
+  done_key: done
+  success_key: success
+  generated_horizon: 30
+  executed_horizon: 4
+  n_step: 1
+  stride: 4
+  gamma: 0.9999
+  seed: 27
+  train_ratio: 0.8
+  validation_ratio: 0.1
+  success_sampling_ratio: 0.5
+  terminal_success_reward: 1.0
+  task_id: click_mouse
+  language: "Move the mouse to the purple mouse pad and click the left mouse button."
+  behavior_policy: pi05_jax_click_mouse
+  success_from_path: false

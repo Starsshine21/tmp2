@@ -1,0 +1,22 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000.yaml
+
+# Isolate the two-sided baseline hypothesis. The trained DIVL head already
+# predicts the complete categorical return distribution, so selecting a higher
+# quantile does not retrain or modify the frozen critic.
+divl:
+  alpha_min: 0.9
+  alpha_max: 0.9
+  use_adaptive_quantile: false
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000/step_5000/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000_final.pt
+  reset_actor_optimizer_on_resume: false
+  sync_old_policy_on_resume: true
+  actor_start_step: 5000
+  actor_steps: 20
+  checkpoint_interval: 20
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_step5000_vq09_smoke20
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_step5000_vq09_smoke20_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_step5000_vq09_smoke20_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_step5000_vq09_smoke20

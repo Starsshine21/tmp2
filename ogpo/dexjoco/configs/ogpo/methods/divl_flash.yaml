@@ -1,0 +1,20 @@
+include: configs/ogpo/pi05_flash_ogpo.yaml
+method: divl_flash
+actor:
+  algorithm: flash_ogpo
+  advantage_mode: sign_consensus
+uncertainty:
+  adapt_ppo_clip: false
+  adapt_kl_beta: false
+  use_conformal: false
+  entropy_scale: 0.0
+  entropy_skip_threshold: 1.1
+  consensus_skip_threshold: -1.0
+  use_support_weight: false
+regularization:
+  kl_uncertainty_scale: 0.0
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_divl_flash.pt
+  metrics_path: outputs/ogpo/click_mouse_divl_flash_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_divl_flash

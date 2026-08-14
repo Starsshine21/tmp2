@@ -1,0 +1,22 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_gpu_smoke.yaml
+
+# Diagnostic-only plumbing check. Production remains sign_consensus; LCB is
+# used here with all behavior anchors disabled so a nonzero actor update can
+# only come from critic-derived PPO advantage.
+actor:
+  advantage_mode: lcb
+
+uncertainty:
+  lcb_kappa: 1.0
+  use_support_weight: false
+
+regularization:
+  beta_kl: 0.0
+  lambda_fm: 0.0
+  lambda_success: 0.0
+  lambda_smooth: 0.0
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_critic_signal_smoke.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_critic_signal_smoke_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_critic_signal_smoke

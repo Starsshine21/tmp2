@@ -1,0 +1,24 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+# Low-cost Flash-OGPO production route. Eight replay states cover all eight
+# denoising steps each iteration; the four candidates for one state still
+# share one selected step. Analytic TGR uses the old policy's live variance.
+flow:
+  selected_timestep_distribution: stratified_uniform
+  temporal_rectification_mode: analytic
+  rectification_clip_min: 0.25
+  rectification_clip_max: 4.0
+
+actor:
+  flash_enabled: true
+  jax_clear_caches_between_steps: false
+  jax_clear_caches_period: 10
+
+training:
+  actor_steps: 500
+  checkpoint_interval: 50
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500

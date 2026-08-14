@@ -1,0 +1,11 @@
+include: configs/ogpo/pi05_flash_ogpo.yaml
+
+actor:
+  algorithm: full_ogpo
+  full_ratio_mode: ais_joint
+  ppo_clip_chain: 0.01
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_full.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_full_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_full

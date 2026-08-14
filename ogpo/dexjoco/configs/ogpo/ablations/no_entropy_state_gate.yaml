@@ -1,0 +1,5 @@
+ablation: no_entropy_state_gate
+uncertainty:
+  entropy_scale: 0.0
+  entropy_skip_threshold: 1.0
+  consensus_skip_threshold: 0.0

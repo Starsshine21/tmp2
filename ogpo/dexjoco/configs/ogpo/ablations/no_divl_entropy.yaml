@@ -1,0 +1,7 @@
+ablation: no_divl_entropy
+uncertainty:
+  entropy_scale: 0.0
+  entropy_skip_threshold: 1.1
+  consensus_skip_threshold: -1.0
+regularization:
+  kl_uncertainty_scale: 0.0

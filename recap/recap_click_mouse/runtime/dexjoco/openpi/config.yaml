@@ -1,0 +1,12 @@
+pretrained_model_path: "/nfs_global/S/yangrongzheng/evo-RL/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse/params"
+pretrained_model_action_dim_44_path: "../checkpoints/pi05_base_action_dim_44/params" # path to the pretrained model weights (action head expanded to 44 for bimanual tasks)
+dataset_root: "/nfs_global/S/yangrongzheng/evo-RL/outputs/recap-click-mouse/data"
+rand_full_dataset_root: "../datasets/dexjoco_lerobot_datasets_rand_full" # expected layout: <rand_full_dataset_root>/<task_name>/ with the same 11 task names
+ckpts_root: "/nfs_global/S/yangrongzheng/evo-RL/outputs/recap-click-mouse/actor_checkpoints"
+rand_full_ckpts_root: "../checkpoints/pi05_rand_full_ckpts"
+wandb_enabled: false
+
+batch_size: 2
+# batch_size: 1 # for test
+single_arm_steps: 30000
+dual_arm_steps: 60000

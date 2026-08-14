@@ -1,0 +1,15 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_accel_resume250_smoke10.yaml
+
+# Continue the validated actor from completed step 450 for 5000 additional
+# updates. The algorithm, effective batch, critic, KL guard, success BC,
+# pmean reduction, and frozen-statistics layout are inherited unchanged.
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0450/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  actor_start_step: 450
+  actor_steps: 5000
+  checkpoint_interval: 100
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_5000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_5000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_5000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_accel_resume450_5000

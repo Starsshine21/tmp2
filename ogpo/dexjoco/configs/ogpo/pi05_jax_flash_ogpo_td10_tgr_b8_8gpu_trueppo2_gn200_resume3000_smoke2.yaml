@@ -1,0 +1,34 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_base_frozen_critic_kl4_resume500_10000.yaml
+
+# Validate the two-epoch PPO route without changing any historical run.
+# The actor weights come from step 3000, but Adafactor is intentionally fresh
+# because the previous optimizer accumulated moments under max_grad_norm=1.
+actor:
+  actor_epochs_per_rollout: 2
+  stabilize_single_epoch_bf16_statistics: true
+  ppo_action_horizon: 4
+  ppo_clip_min: 0.2
+  ppo_clip_max: 0.2
+  max_grad_norm: 200.0
+
+uncertainty:
+  adapt_ppo_clip: false
+  adapt_kl_beta: false
+
+regularization:
+  # Success-buffer BC/FM are outer-rollout regularizers. Do not multiply their
+  # effective weight merely because PPO reuses the rollout for a second epoch.
+  actor_regularization_epochs_per_rollout: 1
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_kl4_resume500_10000/step_3000/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_kl4_resume500_10000_final.pt
+  reset_actor_optimizer_on_resume: true
+  sync_old_policy_on_resume: true
+  actor_start_step: 3000
+  actor_steps: 2
+  checkpoint_interval: 2
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_smoke2
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_smoke2_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_smoke2_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_smoke2

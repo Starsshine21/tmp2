@@ -1,0 +1,4 @@
+include: configs/ogpo/pi05_flash_ogpo.yaml
+method: pi05_sft
+evaluation:
+  policy_dir: /nfs_global/S/yangrongzheng/evo-RL/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse

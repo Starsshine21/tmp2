@@ -1,0 +1,11 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_gpu_smoke.yaml
+
+# Production-loss memory check: the base smoke already enables fixed KL and FM;
+# this overlay also enables the success-buffer flow-matching term.
+regularization:
+  lambda_success: 0.1
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_regularization_smoke.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_regularization_smoke_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_regularization_smoke

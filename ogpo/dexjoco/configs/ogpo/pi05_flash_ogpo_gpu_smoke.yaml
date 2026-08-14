@@ -1,0 +1,31 @@
+include: configs/ogpo/pi05_flash_ogpo.yaml
+
+actor:
+  actor_delay: 0
+  group_size: 2
+  old_policy_sync_period: 1
+
+critic:
+  force_actor: true
+  steps_per_actor_step: 1
+
+flow:
+  num_steps: 2
+  selected_timestep_distribution: fixed
+  selected_timestep: 1
+
+uncertainty:
+  entropy_skip_threshold: 1.1
+  consensus_skip_threshold: 0.0
+  support_threshold: 1000000.0
+
+regularization:
+  lambda_success: 0.0
+
+training:
+  critic_checkpoint: null
+  actor_steps: 1
+  batch_size: 1
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_flash_gpu_smoke.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_flash_gpu_smoke_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_flash_gpu_smoke

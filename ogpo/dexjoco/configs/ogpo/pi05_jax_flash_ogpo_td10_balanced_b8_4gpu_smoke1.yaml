@@ -1,0 +1,8 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+training:
+  actor_steps: 1
+  checkpoint_interval: 1
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_smoke1.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_smoke1_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_smoke1

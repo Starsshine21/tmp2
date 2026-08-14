@@ -1,0 +1,20 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_4gpu_500.yaml
+
+# OGPO+ applies success-buffer BC in every actor update. Keeping the loss
+# structure fixed also lets JAX reuse one PPO+BC executable instead of
+# alternating between PPO-only and PPO+BC compiled programs.
+regularization:
+  success_update_period: 1
+
+actor:
+  fixed_statistics_microbatch_size: 8
+  jax_clear_caches_after_success_update: false
+  # Two consecutive fixed-shape updates are stable, while the third retains
+  # enough NNX/executable buffers to fragment the next 2.73-GiB allocation.
+  # Clear at the observed safe boundary rather than recompiling every step.
+  jax_clear_caches_period: 2
+
+training:
+  resume_checkpoint: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0100/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt
+  actor_start_step: 100
+  actor_steps: 400

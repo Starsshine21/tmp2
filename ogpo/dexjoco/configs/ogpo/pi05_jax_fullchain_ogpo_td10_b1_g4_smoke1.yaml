@@ -1,0 +1,28 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_ogpo_aligned_gc_500.yaml
+
+actor:
+  flash_enabled: false
+  group_size: 4
+  gradient_microbatch_size: 1
+  full_ratio_mode: ais_joint
+  ppo_clip_chain: 0.01
+  normalize_logprob_by_action_dim: true
+  normalize_logprob_by_denoising_steps: true
+  full_chain_streaming_backward: true
+
+# Full-chain microbatching currently isolates the exact PPO gradient. These
+# auxiliaries remain active on the parallel Flash route and will be restored
+# here after the full-chain memory profile is established.
+regularization:
+  beta_kl: 0.0
+  lambda_fm: 0.0
+  lambda_success: 0.0
+
+training:
+  batch_size: 1
+  actor_steps: 1
+  checkpoint_interval: 1
+  keep_periodic_checkpoints: false
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_fullchain_td10_b1_g4_smoke1.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_fullchain_td10_b1_g4_smoke1_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_fullchain_td10_b1_g4_smoke1

@@ -1,0 +1,16 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep.yaml
+
+data:
+  dataset_path: outputs/ogpo/click_mouse_pi05_replay_train.pt
+  validation_path: outputs/ogpo/click_mouse_pi05_replay_validation.pt
+
+training:
+  critic_steps: 20
+  batch_size: 8
+  checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_lwd_smoke.pt
+  metrics_path: outputs/ogpo/click_mouse_gemma_udivl_lwd_smoke_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_gemma_udivl_lwd_smoke
+
+evaluation:
+  interval: 20
+  validation_batch_size: 8

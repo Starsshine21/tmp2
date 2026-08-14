@@ -1,0 +1,54 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep_td_30k_b32.yaml
+
+data:
+  # Existing replay files contain contiguous 1-step chunks. Fold them into
+  # 10-step outer-MDP targets after loading, without overwriting source data.
+  n_step: 10
+  apply_n_step_on_load: true
+
+critic:
+  # New Q/V heads still learn quickly; pretrained Gemma and SigLIP use a
+  # smaller differential LR while remaining fully trainable from step one.
+  learning_rate: 0.0005
+  backbone:
+    learning_rate: 0.00002
+    train_siglip: true
+    train_vlm_full: true
+    gradient_checkpointing: true
+
+training:
+  critic_steps: 30000
+  batch_size: 32
+  microbatch_size: 8
+  critic_sampling:
+    enabled: true
+    uniform_fraction: 0.5
+    success_fraction: 0.25
+    terminal_success_fraction: 0.125
+    failure_fraction: 0.125
+  checkpoint_interval: 500
+  latest_checkpoint_path: outputs/ogpo/checkpoints/click_mouse_divl_td10_balanced/latest.pt
+  best_checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_balanced_30k_b32_best.pt
+  milestone_steps: [4000, 8000, 12000]
+  milestone_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_divl_td10_balanced/milestones
+  checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_balanced_30k_b32_final.pt
+  metrics_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_balanced_30k_b32_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_gemma_udivl_100ep_td10_balanced_30k_b32
+  early_stopping:
+    enabled: false
+
+evaluation:
+  interval: 500
+  full_validation: true
+  validation_batch_size: 8
+  fixed_validation_batch: false
+  inference_batch_size: 8
+  checkpoint_selection:
+    enabled: true
+    min_pairwise_ranking_accuracy: 0.6
+    min_q_rank_correlation: 0.15
+    max_abs_q_exploitation_gap: 0.15
+    rank_correlation_weight: 0.25
+    rmse_weight: 0.5
+    exploitation_gap_weight: 0.5
+    min_delta: 0.005

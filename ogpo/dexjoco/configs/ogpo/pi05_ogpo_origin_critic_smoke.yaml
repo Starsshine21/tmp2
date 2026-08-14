@@ -1,0 +1,17 @@
+include: configs/ogpo/pi05_ogpo_origin_critic_100ep.yaml
+
+data:
+  origin_feature_cache:
+    enabled: false
+
+training:
+  critic_steps: 1
+  batch_size: 8
+  microbatch_size: 8
+  checkpoint_path: outputs/ogpo-origin/smoke/click_mouse_origin_mc_full_critic.pt
+  metrics_path: outputs/ogpo-origin/smoke/click_mouse_origin_mc_full_critic_metrics.jsonl
+  tensorboard_dir:
+
+evaluation:
+  interval: 1
+  validation_batch_size: 8

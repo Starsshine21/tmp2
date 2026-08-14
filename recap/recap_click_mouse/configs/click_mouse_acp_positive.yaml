@@ -1,0 +1,8 @@
+env_name: click_mouse
+camera_mapping:
+  base: ego_right
+  wrist: wrist
+prompt: |-
+  Move the mouse to the purple mouse pad and click the left mouse button.
+  Advantage: positive
+robot_type: single_arm

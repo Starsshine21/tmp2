@@ -1,0 +1,13 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+# Long four-A100 run. The effective batch and update rule remain identical to
+# the validated 10-step run: 8 states x 4 candidates, one synchronized
+# backward and one optimizer update per outer step.
+training:
+  actor_steps: 500
+  checkpoint_interval: 50
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_500
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_500_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_500_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_500

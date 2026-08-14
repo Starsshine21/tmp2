@@ -1,0 +1,7 @@
+ablation: scalar_q
+divl:
+  enabled: false
+  use_adaptive_quantile: false
+  loss_weight: 0.0
+actor:
+  advantage_mode: scalar_q

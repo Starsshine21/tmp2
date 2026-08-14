@@ -1,0 +1,12 @@
+include: configs/ogpo/pi05_flash_ogpo.yaml
+
+method: state_adaptive_actor_controls
+
+uncertainty:
+  adapt_ppo_clip: true
+  adapt_kl_beta: true
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_state_adaptive_actor_controls.pt
+  metrics_path: outputs/ogpo/click_mouse_state_adaptive_actor_controls_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_state_adaptive_actor_controls

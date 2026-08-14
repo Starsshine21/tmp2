@@ -1,0 +1,30 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_joint_10000.yaml
+
+# Fresh PI0.5-base actor run with the selected offline TD10 critic held fixed.
+# No new environment data are collected in this job, so updating the critic on
+# the original replay would not address actor-induced distribution shift.
+critic:
+  gate_enabled: false
+  steps_per_actor_step: 0
+  update_period_actor_steps: 0
+  steps_per_refresh: 0
+
+actor:
+  # The environment and critic use only the first four actions from each
+  # 30-action PI0.5 chunk. Apply the base-policy KL penalty and rollback gate
+  # to that executed 4 x 22 prefix; the full 30 x 22 KL remains diagnostic.
+  reference_kl_action_horizon: 4
+
+training:
+  # A null resume starts the actor from the native PI0.5 Orbax checkpoint in
+  # flow.checkpoint_dir. The critic is loaded independently from this file.
+  resume_checkpoint: null
+  critic_checkpoint: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_balanced_30k_b32_best_calibrated.pt
+  actor_start_step: 0
+  actor_steps: 10000
+  checkpoint_interval: 500
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_10000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_10000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_10000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_10000

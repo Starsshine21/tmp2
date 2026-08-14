@@ -1,0 +1,15 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_ogpo_aligned_500.yaml
+
+actor:
+  # EMA materializes a separate target PI0.5. Clear completed executables at
+  # every outer-step boundary while validating its long-lived memory profile.
+  jax_clear_caches_between_steps: true
+  jax_clear_caches_period: 1
+
+training:
+  actor_steps: 10
+  checkpoint_interval: 10
+  keep_periodic_checkpoints: false
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_smoke10.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_smoke10_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_smoke10

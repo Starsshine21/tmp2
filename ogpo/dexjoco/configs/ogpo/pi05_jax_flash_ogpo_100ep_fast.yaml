@@ -1,0 +1,24 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_100ep.yaml
+
+regularization:
+  # Preserve OGPO+ success anchoring without paying for a full PI0.5
+  # flow-matching backward on every actor step.
+  success_update_period: 4
+
+training:
+  actor_steps: 100
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_100ep_fast.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_100ep_fast_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_100ep_fast
+
+actor:
+  # Two candidates per backward improves L40S utilization while preserving
+  # four candidates for three-head conservative advantage evaluation.
+  candidate_group_size: 4
+  gradient_microbatch_size: 2
+  # KL is forward-only and can evaluate all candidates in one batch.
+  kl_eval_microbatch_size: 4
+
+flow:
+  # Reduce each four-candidate rollout from 40 to 32 PI0.5 forwards.
+  num_steps: 8

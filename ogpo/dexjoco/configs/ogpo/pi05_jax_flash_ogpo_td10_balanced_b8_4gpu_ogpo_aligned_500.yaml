@@ -1,0 +1,21 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_smoke10.yaml
+
+# PPO semantics aligned with the official OGPO implementation. PI0.5-specific
+# batch size, learning rate, Flash estimator, three Q-V pairs, KL guard, and
+# success BC remain deliberate compute/stability adaptations.
+actor:
+  actor_epochs_per_rollout: 1
+  old_policy_sync_period: 1
+  old_policy_ema: 0.995
+  ppo_clip_min: 0.01
+  ppo_clip_max: 0.01
+  normalize_logprob_by_action_dim: true
+
+training:
+  actor_steps: 500
+  checkpoint_interval: 50
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_500
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_500_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_500_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_500

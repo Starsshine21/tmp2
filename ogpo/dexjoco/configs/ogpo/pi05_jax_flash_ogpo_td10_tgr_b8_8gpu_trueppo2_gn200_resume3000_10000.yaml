@@ -1,0 +1,14 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_smoke2.yaml
+
+# Formal continuation from the last complete checkpoint produced by the old
+# one-epoch route. Actor weights are retained; Adafactor starts fresh.
+training:
+  actor_start_step: 3000
+  # actor_steps is a count: 7000 updates finish at completed step 10000.
+  actor_steps: 7000
+  checkpoint_interval: 500
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_trueppo2_gn200_resume3000_10000

@@ -1,0 +1,13 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8.yaml
+
+critic:
+  # The calibrated 12k critic narrowly misses only the conformal coverage gate
+  # (0.793 vs 0.80). This isolated smoke run intentionally bypasses that gate.
+  force_actor: true
+
+training:
+  actor_steps: 10
+  checkpoint_interval: 10
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_smoke10.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_smoke10_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_smoke10

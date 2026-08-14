@@ -1,0 +1,8 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_100ep_fast.yaml
+
+training:
+  actor_steps: 3
+  checkpoint_interval: 0
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_100ep_fast_smoke.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_100ep_fast_smoke_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_100ep_fast_smoke

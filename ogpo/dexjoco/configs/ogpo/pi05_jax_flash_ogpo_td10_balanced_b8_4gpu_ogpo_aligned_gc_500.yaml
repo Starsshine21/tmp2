@@ -1,0 +1,18 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_balanced_b8_4gpu_ogpo_aligned_500.yaml
+
+actor:
+  flash_enabled: true
+  # EMA keeps a distinct target PI0.5 alive. Releasing completed XLA
+  # executables every step prevents fixed-statistics broadcasts and the next
+  # full-actor backward from accumulating across the 500-step run.
+  jax_clear_caches_between_steps: true
+  jax_clear_caches_period: 1
+
+training:
+  actor_steps: 500
+  checkpoint_interval: 50
+  keep_periodic_checkpoints: true
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_500
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_500_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_500_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_balanced_b8_4gpu_ogpo_aligned_gc_500

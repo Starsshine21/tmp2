@@ -1,0 +1,20 @@
+include: configs/ogpo/pi05_flash_ogpo.yaml
+method: scalar_single_q_awr
+
+critic:
+  ensemble_size: 1
+  lambda_mc: 1.0
+
+divl:
+  enabled: false
+  loss_weight: 0.0
+
+actor:
+  algorithm: awr
+  awr_temperature: 1.0
+  awr_max_weight: 20.0
+
+training:
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_awr.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_awr_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_awr

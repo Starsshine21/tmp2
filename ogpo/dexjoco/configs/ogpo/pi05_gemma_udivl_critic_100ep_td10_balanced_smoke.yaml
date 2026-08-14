@@ -1,0 +1,22 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep_td10_balanced_30k_b32.yaml
+
+training:
+  critic_steps: 2
+  batch_size: 8
+  microbatch_size: 8
+  checkpoint_interval: 0
+  latest_checkpoint_path:
+  best_checkpoint_path:
+  milestone_steps: []
+  checkpoint_path: outputs/ogpo/smoke/click_mouse_divl_td10_balanced_critic.pt
+  metrics_path: outputs/ogpo/smoke/click_mouse_divl_td10_balanced_critic_metrics.jsonl
+  tensorboard_dir:
+
+evaluation:
+  interval: 1
+  full_validation: false
+  validation_batch_size: 16
+  fixed_validation_batch: true
+  stratified_validation_batch: true
+  checkpoint_selection:
+    enabled: false

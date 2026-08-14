@@ -1,0 +1,46 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep.yaml
+
+critic:
+  # First fit all three Q/V heads to trajectory returns while the pretrained
+  # VLM is frozen, then adapt the heads to TD targets before full finetuning.
+  stage: head_mc
+  stage_schedule:
+    - stage: head_mc
+      steps: 2000
+    - stage: head_td
+      steps: 2000
+    - stage: full_td
+  q_loss: huber
+  huber_delta: 0.25
+  # Keep a Monte-Carlo anchor after warmup so bootstrapped targets cannot
+  # collapse back toward the short-horizon reward scale.
+  lambda_mc: 0.25
+  target_tau: 0.01
+  learning_rate: 0.0001
+  backbone:
+    learning_rate: 0.000002
+    train_siglip: true
+    train_vlm_full: true
+    gradient_checkpointing: true
+
+training:
+  critic_steps: 15000
+  batch_size: 32
+  microbatch_size: 8
+  checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_warmup_b32.pt
+  metrics_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_warmup_b32_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_gemma_udivl_100ep_warmup_b32
+  early_stopping:
+    enabled: true
+    metric: validation_pairwise_ranking_accuracy
+    mode: max
+    patience: 12
+    min_delta: 0.002
+    start_stage: full_td
+    restore_best: true
+
+evaluation:
+  interval: 250
+  validation_batch_size: 64
+  fixed_validation_batch: true
+  stratified_validation_batch: true

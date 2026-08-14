@@ -1,0 +1,52 @@
+include: configs/ogpo/pi05_gemma_udivl_critic.yaml
+
+data:
+  dataset_path: outputs/ogpo/click_mouse_pi05_replay_train.pt
+  validation_path: outputs/ogpo/click_mouse_pi05_replay_validation.pt
+  generated_horizon: 30
+  executed_horizon: 4
+
+actor:
+  algorithm: flash_ogpo
+  hidden_dim: 256
+  actor_delay: 0
+  group_size: 4
+  learning_rate: 0.00005
+  old_policy_sync_period: 1
+  old_policy_ema: 0.995
+  ppo_clip_min: 0.05
+  ppo_clip_max: 0.2
+  advantage_clip: 5.0
+  actor_epochs_per_rollout: 1
+  max_grad_norm: 1.0
+  max_policy_reference_kl: 0.5
+
+flow:
+  adapter: pi05_pytorch
+  checkpoint_dir: checkpoints/pi05_pytorch/click_mouse
+  train_config: click_mouse
+  image_mapping:
+    base: image_base
+    wrist: image_wrist
+  num_steps: 10
+  selected_timestep_distribution: uniform
+  stochastic_variance: 0.01
+  sde_mode: ogpo_corrected
+  temporal_rectification_mode: analytic
+  rectification_clip_min: 0.25
+  rectification_clip_max: 4.0
+
+training:
+  device: cuda
+  critic_checkpoint: outputs/ogpo/click_mouse_gemma_udivl_calibrated.pt
+  actor_steps: 20000
+  batch_size: 2
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_flash.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_flash_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_flash
+
+evaluation:
+  tasks: [click_mouse]
+  dexjoco_tasks: [click_mouse]
+  policy_dir: checkpoints/pi05_pytorch/click_mouse
+  best_of_n: 1
