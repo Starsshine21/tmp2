@@ -137,6 +137,7 @@ def main() -> None:
         divl=state.divl,
         conformal_scale=state.conformal_scale,
         inference_batch_size=inference_batch_size,
+        config=state_cfg,
     )
     for key, value in metrics.items():
         print(f"{key}: {value:.6f}")

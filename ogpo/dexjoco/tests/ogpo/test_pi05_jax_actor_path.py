@@ -187,6 +187,76 @@ def test_jax_actor_optimizer_updates_backend_parameters():
     assert not np.allclose(before, after)
 
 
+def test_model_dim_flow_keeps_padding_latent_but_exposes_only_environment_actions():
+    class FakeBuilder:
+        def action_chunks_to_flow(self, batch):
+            return batch.action_chunks
+
+        def flat_actions_to_environment(self, flat_actions, *, model_states=None):
+            del model_states
+            return flat_actions + 1.0
+
+    backend = TrainableFakeJaxBackend(action_horizon=3, action_dim=4)
+    policy = PI05JaxFlowPolicy(
+        backend,
+        environment_action_dim=2,
+        flow_action_dim="model",
+        num_steps=2,
+        residual_hidden_dim=8,
+        condition_builder=FakeBuilder(),
+    )
+    batch = type("Batch", (), {"action_chunks": torch.ones(2, 3, 2)})()
+
+    flow_endpoint = policy.action_chunks_to_flow(batch)
+    environment_endpoint = policy.flat_actions_to_environment(
+        torch.arange(24, dtype=torch.float32).reshape(2, 12)
+    )
+
+    assert policy.environment_action_dim == 2
+    assert policy.flow_action_dim == 4
+    assert policy.action_dim == 12
+    assert tuple(policy.log_std.shape) == (12,)
+    assert tuple(flow_endpoint.shape) == (2, 3, 4)
+    assert torch.allclose(flow_endpoint[..., :2], torch.ones(2, 3, 2))
+    assert torch.count_nonzero(flow_endpoint[..., 2:]) == 0
+    expected_environment = torch.arange(24, dtype=torch.float32).reshape(2, 3, 4)[..., :2]
+    assert torch.allclose(environment_endpoint.reshape(2, 3, 2), expected_environment + 1.0)
+
+
+def test_model_dim_flow_padding_changes_executed_velocity_when_backend_couples_dimensions():
+    class CoupledBackend(nnx.Module):
+        def __init__(self):
+            self.action_horizon = 1
+            self.action_dim = 4
+
+        def predict_velocity(self, observation, noisy_actions, timestep, *, train=False):
+            del observation, timestep, train
+            coupled = noisy_actions.sum(axis=-1, keepdims=True)
+            return jnp.broadcast_to(coupled, noisy_actions.shape)
+
+    policy = PI05JaxFlowPolicy(
+        CoupledBackend(),
+        environment_action_dim=2,
+        flow_action_dim="model",
+        num_steps=2,
+        residual_hidden_dim=8,
+    )
+    actor = nnx.merge(policy.actor_graphdef, policy.actor_state)
+    without_padding_noise = actor.predict_velocity(
+        None,
+        jnp.asarray([[[1.0, 2.0, 0.0, 0.0]]]),
+        jnp.asarray([0.5]),
+    ).reshape(1, 1, 4)
+    with_padding_noise = actor.predict_velocity(
+        None,
+        jnp.asarray([[[1.0, 2.0, 3.0, 4.0]]]),
+        jnp.asarray([0.5]),
+    ).reshape(1, 1, 4)
+
+    assert np.allclose(without_padding_noise[..., :2], 3.0)
+    assert np.allclose(with_padding_noise[..., :2], 10.0)
+
+
 @pytest.mark.parametrize("sde_mode", ["gaussian_adapter", "ogpo_corrected"])
 def test_joint_jax_inference_rollout_matches_stepwise_euler(sde_mode):
     policy = PI05JaxFlowPolicy(
@@ -226,6 +296,90 @@ def test_joint_jax_inference_rollout_matches_stepwise_euler(sde_mode):
     actual = policy.sample_actions_jax(observation, noise=noise)
 
     assert np.allclose(actual, expected, atol=1e-6)
+
+
+def test_native_ode_inference_does_not_apply_training_sde_drift_correction():
+    policy = PI05JaxFlowPolicy(
+        TrainableFakeJaxBackend(action_horizon=3, action_dim=4),
+        environment_action_dim=2,
+        num_steps=3,
+        stochastic_variance=0.01,
+        sde_mode="ogpo_corrected",
+        inference_dynamics="native_ode",
+        residual_hidden_dim=8,
+    )
+    observation = openpi_model.Observation(
+        state=jnp.zeros((1, 5), dtype=jnp.float32),
+        images={"base": jnp.zeros((1, 8, 8, 3), dtype=jnp.float32)},
+        image_masks={"base": jnp.ones((1,), dtype=jnp.bool_)},
+    )
+    noise = jnp.linspace(-1.0, 1.0, 6, dtype=jnp.float32).reshape(1, 3, 2)
+    actor = nnx.merge(policy.actor_graphdef, policy.actor_state)
+
+    expected = noise
+    dt = -1.0 / policy.num_steps
+    for step_index in range(policy.num_steps):
+        time = jnp.asarray(1.0 + dt * step_index, dtype=jnp.float32)
+        velocity = actor.predict_velocity(
+            observation,
+            expected,
+            jnp.broadcast_to(time, (1,)),
+        ).reshape(expected.shape)
+        expected = expected + dt * velocity
+
+    policy.prepare_inference()
+    actual = policy.sample_actions_jax(observation, noise=noise)
+
+    assert np.allclose(actual, expected, atol=1e-6)
+
+
+def test_native_ode_torch_compatibility_path_uses_the_same_plain_euler_step():
+    policy = PI05JaxFlowPolicy(
+        FakeJaxBackend(action_horizon=3, action_dim=4),
+        environment_action_dim=2,
+        num_steps=3,
+        stochastic_variance=0.01,
+        sde_mode="ogpo_corrected",
+        inference_dynamics="native_ode",
+        residual_hidden_dim=8,
+    )
+    condition = _condition(1)
+    x_t = torch.linspace(-1.0, 1.0, 6).reshape(1, 6)
+    timestep = torch.ones(1, 1)
+
+    velocity = policy.predict_velocity(x_t, condition, timestep)
+    expected = policy.flow_spec.euler_step(x_t, velocity)
+    actual = policy.transition_mean(x_t, condition, timestep)
+
+    assert torch.allclose(actual, expected)
+
+
+def test_legacy_22d_checkpoint_adapter_can_use_32d_native_ode_at_inference():
+    policy = PI05JaxFlowPolicy(
+        TrainableFakeJaxBackend(action_horizon=3, action_dim=4),
+        environment_action_dim=2,
+        flow_action_dim=2,
+        inference_flow_action_dim="model",
+        num_steps=3,
+        sde_mode="ogpo_corrected",
+        inference_dynamics="native_ode",
+        residual_hidden_dim=8,
+    )
+    observation = openpi_model.Observation(
+        state=jnp.zeros((1, 5), dtype=jnp.float32),
+        images={"base": jnp.zeros((1, 8, 8, 3), dtype=jnp.float32)},
+        image_masks={"base": jnp.ones((1,), dtype=jnp.bool_)},
+    )
+    noise = jnp.arange(12, dtype=jnp.float32).reshape(1, 3, 4)
+
+    policy.prepare_inference()
+    actions = policy.sample_actions_jax(observation, noise=noise)
+
+    assert policy.flow_action_dim == 2
+    assert policy.inference_flow_action_dim == 4
+    assert tuple(policy.log_std.shape) == (6,)
+    assert actions.shape == (1, 3, 4)
+    assert np.isfinite(actions).all()
 
 
 def test_ogpo_inference_uses_joint_jax_path_without_torch_bridge(monkeypatch):
@@ -559,22 +713,31 @@ def test_jax_flash_and_full_updates_return_finite_metrics(monkeypatch):
     backend = FakeJaxBackend(action_horizon=3, action_dim=4)
 
     def fake_loader(**kwargs):
-        def builder(replay_batch, *, next_observation=False, device="cpu"):
-            state = replay_batch.next_observations if next_observation else replay_batch.observations
-            obs = FakeObservation(
-                state=state.to(device),
-                images={"base": torch.zeros(state.shape[0], 3, 8, 8, device=device)},
-                image_masks={"base": torch.ones(state.shape[0], dtype=torch.bool, device=device)},
-            )
-            return PI05FlowCondition(obs)
+        class Builder:
+            def __call__(self, replay_batch, *, next_observation=False, device="cpu"):
+                state = replay_batch.next_observations if next_observation else replay_batch.observations
+                obs = FakeObservation(
+                    state=state.to(device),
+                    images={"base": torch.zeros(state.shape[0], 3, 8, 8, device=device)},
+                    image_masks={"base": torch.ones(state.shape[0], dtype=torch.bool, device=device)},
+                )
+                return PI05FlowCondition(obs)
+
+            def action_chunks_to_flow(self, replay_batch):
+                return replay_batch.action_chunks
+
+            def flat_actions_to_environment(self, flat_actions, *, model_states=None):
+                del model_states
+                return flat_actions
 
         policy = PI05JaxFlowPolicy(
             backend,
             environment_action_dim=kwargs["environment_action_dim"],
+            flow_action_dim=kwargs.get("flow_action_dim"),
             num_steps=kwargs["num_steps"],
             sde_mode=kwargs["sde_mode"],
             residual_hidden_dim=8,
-            condition_builder=builder,
+            condition_builder=Builder(),
         )
         policy.init_actor_optimizer(learning_rate=1e-4)
         return policy
@@ -596,6 +759,7 @@ def test_jax_flash_and_full_updates_return_finite_metrics(monkeypatch):
             "checkpoint_dir": "/tmp/fake-pi05-jax",
             "train_config": "fake",
             "image_mapping": {"base": "front"},
+            "latent_action_dim": "model",
             "num_steps": 2,
             "sde_mode": "gaussian_adapter",
             "selected_timestep": 1,

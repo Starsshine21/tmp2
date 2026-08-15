@@ -416,7 +416,7 @@ def build_train_state(
             _load_flow_policy = load_pi05_jax_flow_policy
         else:
             _load_flow_policy = load_pi05_pytorch_flow_policy
-        policy = _load_flow_policy(
+        flow_policy_kwargs = dict(
             checkpoint_dir=str(flow_cfg["checkpoint_dir"]),
             train_config_name=str(flow_cfg["train_config"]),
             image_mapping=dict(flow_cfg.get("image_mapping", {})),
@@ -427,6 +427,13 @@ def build_train_state(
             residual_hidden_dim=int(actor_cfg.get("hidden_dim", 128)),
             device=device,
         )
+        if flow_adapter == "pi05_jax":
+            flow_policy_kwargs["flow_action_dim"] = flow_cfg.get("latent_action_dim")
+            flow_policy_kwargs["inference_dynamics"] = flow_cfg.get(
+                "inference_dynamics",
+                "training_sde_drift",
+            )
+        policy = _load_flow_policy(**flow_policy_kwargs)
         if policy.model_horizon != batch.generated_horizon:
             raise ValueError(
                 f"PI0.5 action horizon {policy.model_horizon} does not match replay horizon {batch.generated_horizon}"
@@ -2673,14 +2680,32 @@ def flash_actor_update(
             )
         ppo_event_dim = ppo_action_horizon * state.policy.environment_action_dim
         full_reference_kl_event_dim = (
-            state.policy.model_horizon * state.policy.environment_action_dim
+            state.policy.model_horizon * state.policy.flow_action_dim
         )
+
+        def _select_environment_prefix(value, action_horizon):
+            return value.reshape(
+                value.shape[0],
+                state.policy.model_horizon,
+                state.policy.flow_action_dim,
+            )[:, :action_horizon, : state.policy.environment_action_dim].reshape(
+                value.shape[0], -1
+            )
+
+        def _select_environment_prefix_numpy(value, action_horizon):
+            return value.reshape(
+                value.shape[0],
+                state.policy.model_horizon,
+                state.policy.flow_action_dim,
+            )[:, :action_horizon, : state.policy.environment_action_dim].reshape(
+                value.shape[0], -1
+            )
 
         def _ppo_log_prob(x, mean, log_std):
             return jax_gaussian_log_prob(
-                x[..., :ppo_event_dim],
-                mean[..., :ppo_event_dim],
-                log_std[..., :ppo_event_dim],
+                _select_environment_prefix(x, ppo_action_horizon),
+                _select_environment_prefix(mean, ppo_action_horizon),
+                _select_environment_prefix(log_std, ppo_action_horizon),
             )
 
         def _prefix_reference_kl(
@@ -2690,10 +2715,10 @@ def flash_actor_update(
             log_std_q,
         ):
             return jax_gaussian_kl_diag(
-                mean_p[..., :reference_kl_event_dim],
-                log_std_p[..., :reference_kl_event_dim],
-                mean_q[..., :reference_kl_event_dim],
-                log_std_q[..., :reference_kl_event_dim],
+                _select_environment_prefix(mean_p, reference_kl_action_horizon),
+                _select_environment_prefix(log_std_p, reference_kl_action_horizon),
+                _select_environment_prefix(mean_q, reference_kl_action_horizon),
+                _select_environment_prefix(log_std_q, reference_kl_action_horizon),
             )
 
         flow_spec = OpenPIJaxFlowSpec(state.policy.num_steps)
@@ -3166,10 +3191,10 @@ def flash_actor_update(
                 ),
                 jnp.mean(
                     jax_gaussian_kl_diag(
-                        current_mean[..., :ppo_event_dim],
-                        current_log_std[..., :ppo_event_dim],
-                        old_mean[..., :ppo_event_dim],
-                        old_log_std[..., :ppo_event_dim],
+                        _select_environment_prefix(current_mean, ppo_action_horizon),
+                        _select_environment_prefix(current_log_std, ppo_action_horizon),
+                        _select_environment_prefix(old_mean, ppo_action_horizon),
+                        _select_environment_prefix(old_log_std, ppo_action_horizon),
                     )
                 ),
             )
@@ -3436,10 +3461,10 @@ def flash_actor_update(
                     )
                     old_policy_kl = jnp.mean(
                         jax_gaussian_kl_diag(
-                            current_mean[..., :ppo_event_dim],
-                            current_log_std[..., :ppo_event_dim],
-                            old_mean[..., :ppo_event_dim],
-                            old_log_std[..., :ppo_event_dim],
+                            _select_environment_prefix(current_mean, ppo_action_horizon),
+                            _select_environment_prefix(current_log_std, ppo_action_horizon),
+                            _select_environment_prefix(old_mean, ppo_action_horizon),
+                            _select_environment_prefix(old_log_std, ppo_action_horizon),
                         )
                     )
                     return prefix_kl, full_kl, old_policy_kl
@@ -3914,11 +3939,18 @@ def flash_actor_update(
                 )
                 post_update_kl = float(
                     _numpy_gaussian_kl_diag(
-                        post_mean_host,
-                        post_log_std_host,
-                        reference_mean_host,
-                        reference_log_std_host,
-                        event_dim=reference_kl_event_dim,
+                        _select_environment_prefix_numpy(
+                            post_mean_host, reference_kl_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            post_log_std_host, reference_kl_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            reference_mean_host, reference_kl_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            reference_log_std_host, reference_kl_action_horizon
+                        ),
                     ).mean()
                 )
                 post_update_full_kl = float(
@@ -3931,11 +3963,18 @@ def flash_actor_update(
                 )
                 post_update_old_policy_kl = float(
                     _numpy_gaussian_kl_diag(
-                        post_mean_host,
-                        post_log_std_host,
-                        old_mean_host,
-                        old_log_std_host,
-                        event_dim=ppo_event_dim,
+                        _select_environment_prefix_numpy(
+                            post_mean_host, ppo_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            post_log_std_host, ppo_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            old_mean_host, ppo_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            old_log_std_host, ppo_action_horizon
+                        ),
                     ).mean()
                 )
                 del post_statistics_parts, post_mean_host, post_log_std_host
@@ -4087,11 +4126,18 @@ def flash_actor_update(
             if data_parallel_devices > 1:
                 final_post_update_kl = float(
                     _numpy_gaussian_kl_diag(
-                        old_mean_host,
-                        old_log_std_host,
-                        reference_mean_host,
-                        reference_log_std_host,
-                        event_dim=reference_kl_event_dim,
+                        _select_environment_prefix_numpy(
+                            old_mean_host, reference_kl_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            old_log_std_host, reference_kl_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            reference_mean_host, reference_kl_action_horizon
+                        ),
+                        _select_environment_prefix_numpy(
+                            reference_log_std_host, reference_kl_action_horizon
+                        ),
                     ).mean()
                 )
                 final_post_update_full_kl = float(
@@ -4557,11 +4603,22 @@ def _policy_checkpoint_state(
         return {
             "format": "pi05_jax_full_finetune",
             "state": policy.adapter_state_dict(),
+            "environment_action_dim": policy.environment_action_dim,
+            "flow_action_dim": policy.flow_action_dim,
             "jax_sidecar": jax_sidecar,
             "jax_sidecar_has_old_policy": jax_sidecar_has_old_policy,
         }
     if isinstance(policy, (PI05PytorchFlowPolicy, PI05JaxFlowPolicy)):
-        return {"format": "pi05_residual_adapter", "state": policy.adapter_state_dict()}
+        return {
+            "format": "pi05_residual_adapter",
+            "state": policy.adapter_state_dict(),
+            "environment_action_dim": policy.environment_action_dim,
+            "flow_action_dim": getattr(
+                policy,
+                "flow_action_dim",
+                policy.environment_action_dim,
+            ),
+        }
     return {"format": "full_state_dict", "state": policy.state_dict()}
 
 

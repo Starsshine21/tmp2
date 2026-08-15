@@ -22,12 +22,30 @@ PI05_CHECKPOINT=${PI05_CHECKPOINT:-/nfs_global/S/yangrongzheng/evo-RL/click_mous
 OGPO_CHECKPOINT=${OGPO_CHECKPOINT:-${ROOT}/outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500/step_0050/click_mouse_pi05_jax_flash_td10_tgr_b8_4gpu_500_final.pt}
 EPISODES=${PI05_EPISODES:-100}
 SEED=${PI05_SEED:-27}
+EVAL_PROTOCOL=${PI05_EVAL_PROTOCOL:-strict}
 STRICT_REPRODUCIBILITY=${PI05_STRICT_REPRODUCIBILITY:-true}
 DETERMINISTIC_POLICY_NOISE=${PI05_DETERMINISTIC_POLICY_NOISE:-${STRICT_REPRODUCIBILITY}}
 BLOCK_WHEN_EMPTY=${PI05_BLOCK_ON_INFERENCE_WHEN_EMPTY:-${STRICT_REPRODUCIBILITY}}
 BLOCK_AFTER_REPLAN=${PI05_BLOCK_AFTER_REPLAN:-${STRICT_REPRODUCIBILITY}}
 VERIFY_POLICY_REPEATABILITY=${PI05_VERIFY_POLICY_REPEATABILITY:-false}
 DETERMINISTIC_XLA=${PI05_DETERMINISTIC_XLA:-${STRICT_REPRODUCIBILITY}}
+INFERENCE_DYNAMICS=${PI05_EVAL_INFERENCE_DYNAMICS:-native_ode}
+INFERENCE_NUM_STEPS=${PI05_EVAL_NUM_STEPS:-10}
+REQUIRE_MODEL_FLOW_DIM=${PI05_EVAL_REQUIRE_MODEL_FLOW_DIM:-true}
+LEGACY_EVALUATION=false
+FAST_POLICY_SERVER=${PI05_FAST_POLICY_SERVER:-true}
+if [[ "${EVAL_PROTOCOL}" == "legacy" ]]; then
+  STRICT_REPRODUCIBILITY=false
+  DETERMINISTIC_POLICY_NOISE=false
+  BLOCK_WHEN_EMPTY=false
+  BLOCK_AFTER_REPLAN=false
+  DETERMINISTIC_XLA=false
+  LEGACY_EVALUATION=true
+  FAST_POLICY_SERVER=false
+elif [[ "${EVAL_PROTOCOL}" != "strict" && "${EVAL_PROTOCOL}" != "custom" ]]; then
+  echo "Unsupported PI05_EVAL_PROTOCOL=${EVAL_PROTOCOL}; expected strict, legacy, or custom" >&2
+  exit 2
+fi
 PORT=${PI05_SERVER_PORT:-$((19000 + SLURM_JOB_ID % 1000))}
 OUTPUT_DIR=${PI05_EVAL_OUTPUT_DIR:-${ROOT}/outputs/pi05_rollouts/click_mouse_jax_tgr_step0450_${EPISODES}ep_${SLURM_JOB_ID}}
 SERVER_LOG=${ROOT}/outputs/ogpo/logs/pi05-tgr-step0450-eval100-server-${SLURM_JOB_ID}.log
@@ -88,10 +106,19 @@ echo "evaluation_start=$(date --iso-8601=seconds)"
 echo "job_id=${SLURM_JOB_ID} host=$(hostname)"
 echo "checkpoint=${OGPO_CHECKPOINT}"
 echo "episodes=${EPISODES} seed=${SEED} output=${OUTPUT_DIR}"
-echo "strict_reproducibility=${STRICT_REPRODUCIBILITY} deterministic_policy_noise=${DETERMINISTIC_POLICY_NOISE} block_when_empty=${BLOCK_WHEN_EMPTY} block_after_replan=${BLOCK_AFTER_REPLAN}"
+echo "eval_protocol=${EVAL_PROTOCOL} strict_reproducibility=${STRICT_REPRODUCIBILITY} deterministic_policy_noise=${DETERMINISTIC_POLICY_NOISE} block_when_empty=${BLOCK_WHEN_EMPTY} block_after_replan=${BLOCK_AFTER_REPLAN} fast_policy_server=${FAST_POLICY_SERVER}"
+echo "inference_dynamics=${INFERENCE_DYNAMICS} inference_num_steps=${INFERENCE_NUM_STEPS} require_model_flow_dim=${REQUIRE_MODEL_FLOW_DIM}"
 echo "cuda_visible_devices=${CUDA_VISIBLE_DEVICES:-unset} slurm_job_gpus=${SLURM_JOB_GPUS:-unset} mujoco_egl_device_id=${MUJOCO_EGL_DEVICE_ID}"
 echo "prompt=Move the mouse to the purple mouse pad and click the left mouse button."
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+
+SERVER_BOOL_FLAGS=()
+if [[ "${FAST_POLICY_SERVER}" == "true" ]]; then
+  SERVER_BOOL_FLAGS+=(--skip-reference-policy --skip-critic)
+fi
+if [[ "${REQUIRE_MODEL_FLOW_DIM}" == "true" ]]; then
+  SERVER_BOOL_FLAGS+=(--require-model-flow-dim)
+fi
 
 cd "${ROOT}"
 PYTHONPATH="${ROOT}/dexjoco:${ROOT}/openpi/src:${ROOT}/openpi/packages/openpi-client/src" \
@@ -101,8 +128,9 @@ PYTHONPATH="${ROOT}/dexjoco:${ROOT}/openpi/src:${ROOT}/openpi/packages/openpi-cl
   --train-config=click_mouse \
   --ogpo-checkpoint="${OGPO_CHECKPOINT}" \
   --device=cuda \
-  --skip-reference-policy \
-  --skip-critic >"${SERVER_LOG}" 2>&1 &
+  --inference-dynamics="${INFERENCE_DYNAMICS}" \
+  --inference-num-steps="${INFERENCE_NUM_STEPS}" \
+  "${SERVER_BOOL_FLAGS[@]}" >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
@@ -145,6 +173,9 @@ if [[ "${VERIFY_POLICY_REPEATABILITY}" == "true" ]]; then
 fi
 if [[ "${STRICT_REPRODUCIBILITY}" == "true" ]]; then
   EVAL_BOOL_FLAGS+=(--strict-reproducibility)
+fi
+if [[ "${LEGACY_EVALUATION}" == "true" ]]; then
+  EVAL_BOOL_FLAGS+=(--legacy-evaluation)
 fi
 
 PYTHONPATH="${ROOT}/dexjoco:${ROOT}/openpi/packages/openpi-client/src" \

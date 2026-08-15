@@ -21,12 +21,25 @@ OPENPI_ENV=${OPENPI_ENV:-${ROOT}/.conda/openpi}
 PI05_CHECKPOINT=${PI05_CHECKPOINT:-/nfs_global/S/yangrongzheng/evo-RL/click_mouse_ckpt/pi05_dexjoco_ckpt/click_mouse}
 EPISODES=${PI05_EPISODES:-100}
 SEED=${PI05_SEED:-27}
+EVAL_PROTOCOL=${PI05_EVAL_PROTOCOL:-strict}
 STRICT_REPRODUCIBILITY=${PI05_STRICT_REPRODUCIBILITY:-true}
 DETERMINISTIC_POLICY_NOISE=${PI05_DETERMINISTIC_POLICY_NOISE:-${STRICT_REPRODUCIBILITY}}
 BLOCK_WHEN_EMPTY=${PI05_BLOCK_ON_INFERENCE_WHEN_EMPTY:-${STRICT_REPRODUCIBILITY}}
 BLOCK_AFTER_REPLAN=${PI05_BLOCK_AFTER_REPLAN:-${STRICT_REPRODUCIBILITY}}
 VERIFY_POLICY_REPEATABILITY=${PI05_VERIFY_POLICY_REPEATABILITY:-false}
 DETERMINISTIC_XLA=${PI05_DETERMINISTIC_XLA:-${STRICT_REPRODUCIBILITY}}
+LEGACY_EVALUATION=false
+if [[ "${EVAL_PROTOCOL}" == "legacy" ]]; then
+  STRICT_REPRODUCIBILITY=false
+  DETERMINISTIC_POLICY_NOISE=false
+  BLOCK_WHEN_EMPTY=false
+  BLOCK_AFTER_REPLAN=false
+  DETERMINISTIC_XLA=false
+  LEGACY_EVALUATION=true
+elif [[ "${EVAL_PROTOCOL}" != "strict" && "${EVAL_PROTOCOL}" != "custom" ]]; then
+  echo "Unsupported PI05_EVAL_PROTOCOL=${EVAL_PROTOCOL}; expected strict, legacy, or custom" >&2
+  exit 2
+fi
 PORT=${PI05_SERVER_PORT:-$((20000 + SLURM_JOB_ID % 1000))}
 OUTPUT_DIR=${PI05_EVAL_OUTPUT_DIR:-${ROOT}/outputs/pi05_rollouts/click_mouse_jax_pi05_base_seed${SEED}_${EPISODES}ep_${SLURM_JOB_ID}}
 LOCAL_CHECKPOINT=${SLURM_TMPDIR:-/tmp}/pi05-jax-click-mouse-base-${SLURM_JOB_ID}
@@ -87,7 +100,7 @@ echo "evaluation_start=$(date --iso-8601=seconds)"
 echo "job_id=${SLURM_JOB_ID} host=$(hostname)"
 echo "checkpoint=${PI05_CHECKPOINT}"
 echo "episodes=${EPISODES} seed=${SEED} output=${OUTPUT_DIR}"
-echo "strict_reproducibility=${STRICT_REPRODUCIBILITY} deterministic_policy_noise=${DETERMINISTIC_POLICY_NOISE} block_when_empty=${BLOCK_WHEN_EMPTY} block_after_replan=${BLOCK_AFTER_REPLAN}"
+echo "eval_protocol=${EVAL_PROTOCOL} strict_reproducibility=${STRICT_REPRODUCIBILITY} deterministic_policy_noise=${DETERMINISTIC_POLICY_NOISE} block_when_empty=${BLOCK_WHEN_EMPTY} block_after_replan=${BLOCK_AFTER_REPLAN}"
 echo "cuda_visible_devices=${CUDA_VISIBLE_DEVICES:-unset} slurm_job_gpus=${SLURM_JOB_GPUS:-unset} mujoco_egl_device_id=${MUJOCO_EGL_DEVICE_ID}"
 echo "prompt=Move the mouse to the purple mouse pad and click the left mouse button."
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
@@ -142,6 +155,9 @@ if [[ "${VERIFY_POLICY_REPEATABILITY}" == "true" ]]; then
 fi
 if [[ "${STRICT_REPRODUCIBILITY}" == "true" ]]; then
   EVAL_BOOL_FLAGS+=(--strict-reproducibility)
+fi
+if [[ "${LEGACY_EVALUATION}" == "true" ]]; then
+  EVAL_BOOL_FLAGS+=(--legacy-evaluation)
 fi
 
 PYTHONPATH="${ROOT}/dexjoco:${ROOT}/openpi/packages/openpi-client/src" \

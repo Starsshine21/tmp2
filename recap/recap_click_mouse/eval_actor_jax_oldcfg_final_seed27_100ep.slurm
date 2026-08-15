@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A yangrongzheng
-#SBATCH -J recap_eval_g3s2_30k
+#SBATCH -J recap_eval_g3s2
 #SBATCH -o /nfs_global/S/yangrongzheng/evo-RL/outputs/recap-click-mouse/logs/eval-jax-oldcfg-final-seed27-100ep-%j.out
 #SBATCH -e /nfs_global/S/yangrongzheng/evo-RL/outputs/recap-click-mouse/logs/eval-jax-oldcfg-final-seed27-100ep-%j.err
 #SBATCH -p r8nv-gpu
@@ -23,14 +23,15 @@ OPENPI_ROOT=${REFERENCE_ROOT}/dexjoco/openpi
 OUT=${ROOT}/outputs/recap-click-mouse
 DEXJOCO_PY=${DEXJOCO_ROOT}/.conda/dexjoco/bin/python
 OPENPI_PY=${DEXJOCO_ROOT}/.conda/openpi/bin/python
-CHECKPOINT=${OUT}/actor_jax_oldcfg_checkpoints/click_mouse/recap_click_mouse_gemma3value10k_100ep_oldcfg/29999
+EVAL_STEP=${RECAP_EVAL_STEP:-29999}
+CHECKPOINT=${OUT}/actor_jax_oldcfg_checkpoints/click_mouse/recap_click_mouse_gemma3value10k_100ep_oldcfg/${EVAL_STEP}
 EVAL_CONFIG=${RECAP_ROOT}/configs/click_mouse_acp_positive.yaml
 EPISODES=100
 SEED=27
 PORT=$((22000 + SLURM_JOB_ID % 1000))
-EVAL_DIR=${OUT}/eval/jax_oldcfg_gemma3value10k_step29999_acp_positive_seed27_100ep_${SLURM_JOB_ID}
-LOCAL_CHECKPOINT=${SLURM_TMPDIR:-/tmp}/recap-jax-oldcfg-step29999-${SLURM_JOB_ID}
-SERVER_LOG=${OUT}/logs/eval-jax-oldcfg-final-server-${SLURM_JOB_ID}.log
+EVAL_DIR=${OUT}/eval/jax_oldcfg_gemma3value10k_step${EVAL_STEP}_acp_positive_seed27_100ep_${SLURM_JOB_ID}
+LOCAL_CHECKPOINT=${SLURM_TMPDIR:-/tmp}/recap-jax-oldcfg-step${EVAL_STEP}-${SLURM_JOB_ID}
+SERVER_LOG=${OUT}/logs/eval-jax-oldcfg-step${EVAL_STEP}-server-${SLURM_JOB_ID}.log
 
 mkdir -p "${OUT}/logs" "${OUT}/eval" "${EVAL_DIR}" "${LOCAL_CHECKPOINT}"
 test -x "${DEXJOCO_PY}"
@@ -116,10 +117,11 @@ if [[ "${TOTAL}" -ne "${EPISODES}" ]]; then
   exit 1
 fi
 printf 'checkpoint\tseed\tepisodes\tsuccesses\tfailures\tsuccess_rate\tprompt_mode\n' >"${EVAL_DIR}/summary.tsv"
-printf '29999\t%s\t%s\t%s\t%s\t%s\tacp_positive\n' \
+printf '%s\t%s\t%s\t%s\t%s\t%s\tacp_positive\n' \
+  "${EVAL_STEP}" \
   "${SEED}" "${TOTAL}" "${SUCCESSES}" "${FAILURES}" "$((100 * SUCCESSES / TOTAL))%" \
   >>"${EVAL_DIR}/summary.tsv"
-ln -sfn "${EVAL_DIR}" "${OUT}/eval/latest_jax_oldcfg_seed27_100ep"
-touch "${OUT}/EVAL_JAX_OLDCFG_GEMMA3VALUE10K_SEED27_100EP_COMPLETE"
+ln -sfn "${EVAL_DIR}" "${OUT}/eval/latest_jax_oldcfg_step${EVAL_STEP}_seed27_100ep"
+touch "${OUT}/EVAL_JAX_OLDCFG_GEMMA3VALUE10K_STEP${EVAL_STEP}_SEED27_100EP_COMPLETE"
 echo "successes=${SUCCESSES} failures=${FAILURES} total=${TOTAL}"
 echo "evaluation_end=$(date --iso-8601=seconds)"

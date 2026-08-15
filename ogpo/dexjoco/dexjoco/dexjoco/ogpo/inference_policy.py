@@ -90,7 +90,7 @@ class PI05OGPOInferencePolicy:
                 transformed,
             )
             observation = self.observation_type.from_dict(jax_inputs)
-            env_actions = self.flow_policy.sample_actions_jax(
+            flow_actions = self.flow_policy.sample_actions_jax(
                 observation,
                 noise=noise,
                 noise_seed=(
@@ -101,15 +101,15 @@ class PI05OGPOInferencePolicy:
             )
             model_actions = jnp.zeros(
                 (
-                    env_actions.shape[0],
+                    flow_actions.shape[0],
                     self.flow_policy.model_horizon,
                     self.flow_policy.model_action_dim,
                 ),
-                dtype=env_actions.dtype,
+                dtype=flow_actions.dtype,
             )
             model_actions = model_actions.at[
-                ..., : self.flow_policy.environment_action_dim
-            ].set(env_actions)
+                ..., : self.flow_policy.inference_flow_action_dim
+            ].set(flow_actions)
             outputs = {
                 "state": np.asarray(jax_inputs["state"][0]),
                 "actions": np.asarray(model_actions[0]),
@@ -126,6 +126,11 @@ class PI05OGPOInferencePolicy:
         batch_size = condition.batch_size
         horizon = self.flow_policy.model_horizon
         env_dim = self.flow_policy.environment_action_dim
+        flow_dim = getattr(
+            self.flow_policy,
+            "inference_flow_action_dim",
+            getattr(self.flow_policy, "flow_action_dim", env_dim),
+        )
 
         if noise is None:
             generator = None
@@ -134,7 +139,7 @@ class PI05OGPOInferencePolicy:
                 generator.manual_seed(int(policy_noise_seed))
             x_t = torch.randn(
                 batch_size,
-                horizon * env_dim,
+                horizon * flow_dim,
                 device=device,
                 generator=generator,
             )
@@ -142,9 +147,12 @@ class PI05OGPOInferencePolicy:
             noise_tensor = torch.as_tensor(noise, dtype=torch.float32, device=device)
             if noise_tensor.ndim == 2:
                 noise_tensor = noise_tensor.unsqueeze(0)
-            if noise_tensor.shape[-1] == self.flow_policy.model_action_dim:
-                noise_tensor = noise_tensor[..., :env_dim]
-            expected = (batch_size, horizon, env_dim)
+            if (
+                noise_tensor.shape[-1] == self.flow_policy.model_action_dim
+                and flow_dim < self.flow_policy.model_action_dim
+            ):
+                noise_tensor = noise_tensor[..., :flow_dim]
+            expected = (batch_size, horizon, flow_dim)
             if tuple(noise_tensor.shape) != expected:
                 raise ValueError(f"expected inference noise shape {expected}, got {tuple(noise_tensor.shape)}")
             x_t = noise_tensor.reshape(batch_size, -1)
@@ -160,19 +168,19 @@ class PI05OGPOInferencePolicy:
                     time_batch,
                 )
 
-        env_actions = x_t.reshape(batch_size, horizon, env_dim)
-        model_actions = env_actions.new_zeros(batch_size, horizon, self.flow_policy.model_action_dim)
-        model_actions[..., :env_dim] = env_actions
+        flow_actions = x_t.reshape(batch_size, horizon, flow_dim)
+        model_actions = flow_actions.new_zeros(batch_size, horizon, self.flow_policy.model_action_dim)
+        model_actions[..., :flow_dim] = flow_actions
         outputs = _to_unbatched_numpy({"state": inputs["state"], "actions": model_actions})
         outputs = self.output_transform(outputs)
         if reference_x_t is not None:
-            reference_env_actions = reference_x_t.reshape(batch_size, horizon, env_dim)
-            reference_model_actions = reference_env_actions.new_zeros(
+            reference_flow_actions = reference_x_t.reshape(batch_size, horizon, flow_dim)
+            reference_model_actions = reference_flow_actions.new_zeros(
                 batch_size,
                 horizon,
                 self.flow_policy.model_action_dim,
             )
-            reference_model_actions[..., :env_dim] = reference_env_actions
+            reference_model_actions[..., :flow_dim] = reference_flow_actions
             reference_outputs = _to_unbatched_numpy(
                 {"state": inputs["state"], "actions": reference_model_actions}
             )
@@ -250,6 +258,9 @@ def create_pi05_ogpo_inference_policy(
     device: str = "cuda",
     include_reference_policy: bool = True,
     include_critic: bool = True,
+    inference_dynamics: str | None = None,
+    inference_num_steps: int | None = None,
+    require_model_flow_dim: bool = False,
 ) -> PI05OGPOInferencePolicy:
     """Load a PI0.5 base (JAX or PyTorch) and a compact OGPO residual checkpoint.
 
@@ -292,19 +303,52 @@ def create_pi05_ogpo_inference_policy(
     if policy_format == "pi05_jax_full_finetune" and is_pytorch:
         raise TypeError("full-finetune JAX actor cannot be loaded into a PyTorch PI0.5 backend")
     adapter_state = policy_payload["state"]
-    environment_action_dim = int(adapter_state["log_std"].numel() // model_horizon)
+    environment_action_dim = int(
+        policy_payload.get(
+            "environment_action_dim",
+            adapter_state["residual.2.bias"].numel(),
+        )
+    )
+    flow_action_dim = int(
+        policy_payload.get(
+            "flow_action_dim",
+            adapter_state["log_std"].numel() // model_horizon,
+        )
+    )
+    model_action_dim = int(
+        trained_policy._model.config.action_dim
+        if is_pytorch
+        else trained_policy._model.action_dim
+    )
+    inference_flow_action_dim = model_action_dim if require_model_flow_dim else flow_action_dim
     residual_hidden_dim = int(adapter_state["residual.0.weight"].shape[0])
     flow_cfg = payload.get("config", {}).get("flow", {})
-    flow_policy = flow_policy_cls(
-        trained_policy._model,
+    resolved_num_steps = int(
+        inference_num_steps
+        if inference_num_steps is not None
+        else flow_cfg.get("num_steps", 10)
+    )
+    if resolved_num_steps <= 0:
+        raise ValueError("inference_num_steps must be positive")
+    resolved_inference_dynamics = str(
+        inference_dynamics
+        if inference_dynamics is not None
+        else flow_cfg.get("inference_dynamics", "training_sde_drift")
+    )
+    flow_policy_kwargs = dict(
         environment_action_dim=environment_action_dim,
-        num_steps=int(flow_cfg.get("num_steps", 10)),
+        num_steps=resolved_num_steps,
         stochastic_variance=float(flow_cfg.get("stochastic_variance", 0.01)),
         sde_mode=str(flow_cfg.get("sde_mode", "gaussian_adapter")),
         residual_hidden_dim=residual_hidden_dim,
         checkpoint_dir=str(pi05_checkpoint_dir),
         train_config_name=train_config_name,
-    ).to(device)
+    )
+    if flow_policy_cls is PI05JaxFlowPolicy:
+        flow_policy_kwargs["flow_action_dim"] = flow_action_dim
+        flow_policy_kwargs["inference_flow_action_dim"] = inference_flow_action_dim
+        flow_policy_kwargs["inference_dynamics"] = resolved_inference_dynamics
+    flow_policy = flow_policy_cls(trained_policy._model, **flow_policy_kwargs).to(device)
     reference_flow_policy = flow_policy.clone_adapter() if include_reference_policy else None
     flow_policy.load_adapter_state_dict(adapter_state)
     if policy_format == "pi05_jax_full_finetune":

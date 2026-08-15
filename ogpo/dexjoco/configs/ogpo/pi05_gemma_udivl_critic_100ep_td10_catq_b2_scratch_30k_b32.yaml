@@ -1,0 +1,15 @@
+include: configs/ogpo/pi05_gemma_udivl_critic_100ep_td10_catq_b2_30k_b32.yaml
+
+training:
+  # Start only from the local pretrained Gemma3 and SigLIP2 directories.
+  # Action encoder, categorical Q/V heads, target critic, and optimizer are new.
+  initial_critic_checkpoint: null
+  resume_checkpoint: null
+  latest_checkpoint_path: outputs/ogpo/checkpoints/click_mouse_divl_td10_catq_b2_scratch/latest.pt
+  best_checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_catq_b2_scratch_30k_b32_best.pt
+  milestone_steps: [4000, 8000, 12000]
+  milestone_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_divl_td10_catq_b2_scratch/milestones
+  checkpoint_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_catq_b2_scratch_30k_b32_final.pt
+  metrics_path: outputs/ogpo/click_mouse_gemma_udivl_100ep_td10_catq_b2_scratch_30k_b32_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_gemma_udivl_100ep_td10_catq_b2_scratch_30k_b32
+

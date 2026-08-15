@@ -353,8 +353,11 @@ def main(
     block_on_inference_after_replan: bool = False,
     verify_policy_repeatability: bool = False,
     strict_reproducibility: bool = False,
+    legacy_evaluation: bool = False,
     policy_noise_dim: int = 32,
 ):
+    if legacy_evaluation and strict_reproducibility:
+        raise ValueError("legacy_evaluation and strict_reproducibility are mutually exclusive")
     if render_mode == "rgb_array":
         os.environ.setdefault("MUJOCO_GL", "egl")
     else:
@@ -451,9 +454,16 @@ def main(
                 for cam_name in camera_mapping.values()
             }
 
-            current_episode_seed = episode_seed(seed, ep)
-            _set_seed(current_episode_seed)
-            env.reset(seed=current_episode_seed)
+            if legacy_evaluation:
+                # Preserve the original evaluator's single RNG stream. The old
+                # protocol seeded once before environment construction and did
+                # not reseed individual episodes.
+                current_episode_seed = -1
+                env.reset()
+            else:
+                current_episode_seed = episode_seed(seed, ep)
+                _set_seed(current_episode_seed)
+                env.reset(seed=current_episode_seed)
             initial_state_sha256 = env.scenario_sha256()
 
             timestamp = 0

@@ -31,7 +31,7 @@ def sample_flash_rollout(*, actor: Any, flow_spec: OpenPIJaxFlowSpec, observatio
     batch = selected_step.shape[0]
     total = batch * group_size
     selected_g = jnp.repeat(selected_step, group_size)
-    endpoint_dim = actor.model_horizon * actor.environment_action_dim
+    endpoint_dim = actor.model_horizon * actor.flow_action_dim
     timestep_values = flow_spec.timestep_values()
     x_t = jax.random.normal(rng, (total, endpoint_dim), dtype=jnp.float32)
 
@@ -70,7 +70,7 @@ def sample_flash_rollout(*, actor: Any, flow_spec: OpenPIJaxFlowSpec, observatio
 def rollout(*, actor: Any, flow_spec: OpenPIJaxFlowSpec, observation: Any, group_size: int, rng: jax.Array, sde_mode: str) -> JaxFlowRollout:
     batch = observation.state.shape[0]
     total = batch * group_size
-    endpoint_dim = actor.model_horizon * actor.environment_action_dim
+    endpoint_dim = actor.model_horizon * actor.flow_action_dim
     timestep_values = flow_spec.timestep_values()
     x_t = jax.random.normal(rng, (total, endpoint_dim), dtype=jnp.float32)
 
@@ -188,7 +188,7 @@ def flow_matching_loss(
     actions = action_endpoint.reshape(
         action_endpoint.shape[0],
         actor.model_horizon,
-        actor.environment_action_dim,
+        actor.flow_action_dim,
     )
     noise = noise.reshape(actions.shape)
     time = timestep.reshape(-1)
@@ -200,7 +200,11 @@ def flow_matching_loss(
 
 
 def transition_mean(*, actor: Any, flow_spec: OpenPIJaxFlowSpec, x_t: jax.Array, observation: Any, timestep: jax.Array, sde_mode: str) -> jax.Array:
-    velocity = actor.predict_velocity(observation, x_t.reshape(x_t.shape[0], actor.model_horizon, actor.environment_action_dim), timestep.reshape(-1))
+    velocity = actor.predict_velocity(
+        observation,
+        x_t.reshape(x_t.shape[0], actor.model_horizon, actor.flow_action_dim),
+        timestep.reshape(-1),
+    )
     velocity = velocity.reshape(x_t.shape)
     if sde_mode == "ogpo_corrected":
         t = flow_spec.expand_timestep(timestep, x_t)

@@ -1,0 +1,22 @@
+include: configs/ogpo/pi05_jax_flash_ogpo_td10_tgr_b8_8gpu_base_frozen_critic_10000.yaml
+
+# PI0.5-native flow route. The environment and critic still consume 22 action
+# dimensions, while the actor preserves PI0.5's complete 32-dimensional noisy
+# flow state. Each replay state samples one of ten timesteps uniformly and all
+# four candidates for that state share the selected timestep.
+flow:
+  latent_action_dim: model
+  num_steps: 10
+  selected_timestep_distribution: uniform
+  inference_dynamics: native_ode
+
+regularization:
+  # Keep success-demo BC as a stabilizer without letting the fixed offline
+  # buffer dominate the critic-guided policy update.
+  lambda_success: 0.1
+
+training:
+  periodic_checkpoint_dir: outputs/ogpo/checkpoints/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_32d_flow10_uniform_10000
+  checkpoint_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_32d_flow10_uniform_10000_final.pt
+  metrics_path: outputs/ogpo/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_32d_flow10_uniform_10000_metrics.jsonl
+  tensorboard_dir: outputs/ogpo/tensorboard/click_mouse_pi05_jax_flash_td10_tgr_b8_8gpu_base_frozen_critic_32d_flow10_uniform_10000

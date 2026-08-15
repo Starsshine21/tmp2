@@ -62,33 +62,42 @@ class PI05JaxActorModule(nnx.Module):
         model_horizon: int,
         model_action_dim: int,
         environment_action_dim: int,
+        flow_action_dim: int,
+        inference_flow_action_dim: int,
         residual_hidden_dim: int,
         init_log_std: float,
         num_steps: int,
         sde_mode: str,
+        inference_dynamics: str,
         rngs: nnx.Rngs,
     ):
         self.backend = backend
         self.model_horizon = int(model_horizon)
         self.model_action_dim = int(model_action_dim)
         self.environment_action_dim = int(environment_action_dim)
+        self.flow_action_dim = int(flow_action_dim)
+        self.inference_flow_action_dim = int(inference_flow_action_dim)
         self.residual_hidden_dim = int(residual_hidden_dim)
         self.num_steps = int(num_steps)
         self.sde_mode = str(sde_mode)
+        self.inference_dynamics = str(inference_dynamics)
         self.residual = PI05JaxResidualHead(
             environment_action_dim=self.environment_action_dim,
             hidden_dim=self.residual_hidden_dim,
             rngs=rngs,
         )
-        self.log_std = nnx.Param(jnp.full((self.model_horizon * self.environment_action_dim,), init_log_std))
+        self.log_std = nnx.Param(
+            jnp.full((self.model_horizon * self.flow_action_dim,), init_log_std)
+        )
 
-    def predict_velocity(self, observation: Any, x_env: jax.Array, time: jax.Array) -> jax.Array:
-        batch = x_env.shape[0]
+    def predict_velocity(self, observation: Any, x_flow: jax.Array, time: jax.Array) -> jax.Array:
+        batch = x_flow.shape[0]
         x_model = jnp.zeros(
             (batch, self.model_horizon, self.model_action_dim),
-            dtype=x_env.dtype,
+            dtype=x_flow.dtype,
         )
-        x_model = x_model.at[..., : self.environment_action_dim].set(x_env)
+        active_flow_dim = x_flow.shape[-1]
+        x_model = x_model.at[..., :active_flow_dim].set(x_flow)
         # OGPO needs a deterministic velocity (no image augmentation) so PPO
         # transition log-prob ratios are well-defined; train=False skips the
         # augmax pipeline that would otherwise require an RNG.
@@ -110,25 +119,34 @@ class PI05JaxActorModule(nnx.Module):
             _backend_forward,
             policy=jax.checkpoint_policies.nothing_saveable(),
         )(observation, x_model, time)
-        base = v_t[..., : self.environment_action_dim]
-        residual = self.residual(x_env, base, time)
-        return (base + residual).reshape(batch, -1)
+        base_flow = v_t[..., :active_flow_dim]
+        base_env = base_flow[..., : self.environment_action_dim]
+        residual = self.residual(
+            x_flow[..., : self.environment_action_dim],
+            base_env,
+            time,
+        )
+        velocity = base_flow.at[..., : self.environment_action_dim].add(residual)
+        return velocity.reshape(batch, -1)
 
     def _corrected_velocity(
         self,
-        x_env: jax.Array,
+        x_flow: jax.Array,
         velocity: jax.Array,
         time: jax.Array,
     ) -> jax.Array:
-        if self.sde_mode != "ogpo_corrected":
+        if (
+            self.inference_dynamics == "native_ode"
+            or self.sde_mode != "ogpo_corrected"
+        ):
             return velocity
         sigma_squared = jnp.exp(2.0 * self.log_std.value).reshape(
             1,
             self.model_horizon,
-            self.environment_action_dim,
+            self.flow_action_dim,
         )
         return velocity + 0.5 * sigma_squared * (
-            (1.0 - time) * velocity + x_env
+            (1.0 - time) * velocity + x_flow
         )
 
     def _sample_actions_generic(self, observation: Any, noise: jax.Array) -> jax.Array:
@@ -136,14 +154,14 @@ class PI05JaxActorModule(nnx.Module):
         dt = jnp.asarray(-1.0 / self.num_steps, dtype=noise.dtype)
         batch_size = noise.shape[0]
 
-        def step(step_index: int, x_env: jax.Array) -> jax.Array:
+        def step(step_index: int, x_flow: jax.Array) -> jax.Array:
             time = jnp.asarray(1.0, dtype=noise.dtype) + dt * step_index
             time_batch = jnp.broadcast_to(time, (batch_size,))
-            velocity = self.predict_velocity(observation, x_env, time_batch).reshape(
-                x_env.shape
+            velocity = self.predict_velocity(observation, x_flow, time_batch).reshape(
+                x_flow.shape
             )
-            velocity = self._corrected_velocity(x_env, velocity, time)
-            return x_env + dt * velocity
+            velocity = self._corrected_velocity(x_flow, velocity, time)
+            return x_flow + dt * velocity
 
         return jax.lax.fori_loop(0, self.num_steps, step, noise)
 
@@ -171,12 +189,13 @@ class PI05JaxActorModule(nnx.Module):
         )
 
         def step(carry: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
-            x_env, time = carry
+            x_flow, time = carry
             x_model = jnp.zeros(
                 (batch_size, self.model_horizon, self.model_action_dim),
-                dtype=x_env.dtype,
+                dtype=x_flow.dtype,
             )
-            x_model = x_model.at[..., : self.environment_action_dim].set(x_env)
+            active_flow_dim = x_flow.shape[-1]
+            x_model = x_model.at[..., :active_flow_dim].set(x_flow)
             time_batch = jnp.broadcast_to(time, (batch_size,))
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = backend.embed_suffix(
                 observation,
@@ -210,12 +229,18 @@ class PI05JaxActorModule(nnx.Module):
             )
             if prefix_out is not None:
                 raise AssertionError("cached PI0.5 suffix forward returned prefix output")
-            base = backend.action_out_proj(
+            base_flow = backend.action_out_proj(
                 suffix_out[:, -self.model_horizon :]
-            )[..., : self.environment_action_dim]
-            velocity = base + self.residual(x_env, base, time_batch)
-            velocity = self._corrected_velocity(x_env, velocity, time)
-            return x_env + dt * velocity, time + dt
+            )[..., :active_flow_dim]
+            base_env = base_flow[..., : self.environment_action_dim]
+            residual = self.residual(
+                x_flow[..., : self.environment_action_dim],
+                base_env,
+                time_batch,
+            )
+            velocity = base_flow.at[..., : self.environment_action_dim].add(residual)
+            velocity = self._corrected_velocity(x_flow, velocity, time)
+            return x_flow + dt * velocity, time + dt
 
         def cond(carry: tuple[jax.Array, jax.Array]) -> jax.Array:
             _, time = carry
@@ -315,9 +340,12 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
         backend: Any,
         *,
         environment_action_dim: int,
+        flow_action_dim: int | str | None = None,
+        inference_flow_action_dim: int | str | None = None,
         num_steps: int = 10,
         stochastic_variance: float = 0.04,
         sde_mode: str = "gaussian_adapter",
+        inference_dynamics: str = "training_sde_drift",
         residual_hidden_dim: int = 128,
         condition_builder: PI05ReplayConditionBuilder | None = None,
         checkpoint_dir: str | None = None,
@@ -326,10 +354,33 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
         model_horizon = int(backend.action_horizon)
         model_action_dim = int(backend.action_dim)
         environment_action_dim = int(environment_action_dim)
+        if flow_action_dim is None:
+            flow_action_dim = environment_action_dim
+        elif flow_action_dim == "model":
+            flow_action_dim = model_action_dim
+        flow_action_dim = int(flow_action_dim)
+        if inference_flow_action_dim is None:
+            inference_flow_action_dim = flow_action_dim
+        elif inference_flow_action_dim == "model":
+            inference_flow_action_dim = model_action_dim
+        inference_flow_action_dim = int(inference_flow_action_dim)
         if environment_action_dim > model_action_dim:
             raise ValueError("environment action dimension cannot exceed PI0.5 model action dimension")
+        if not environment_action_dim <= flow_action_dim <= model_action_dim:
+            raise ValueError(
+                "PI0.5 flow action dimension must be between the environment and model action dimensions"
+            )
+        if not environment_action_dim <= inference_flow_action_dim <= model_action_dim:
+            raise ValueError(
+                "PI0.5 inference flow action dimension must be between the "
+                "environment and model action dimensions"
+            )
+        if inference_dynamics not in {"native_ode", "training_sde_drift"}:
+            raise ValueError(
+                "inference_dynamics must be 'native_ode' or 'training_sde_drift'"
+            )
         super().__init__(
-            action_dim=model_horizon * environment_action_dim,
+            action_dim=model_horizon * flow_action_dim,
             num_steps=num_steps,
             stochastic_variance=stochastic_variance,
             sde_mode=sde_mode,
@@ -340,6 +391,9 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
         self.model_horizon = model_horizon
         self.model_action_dim = model_action_dim
         self.environment_action_dim = environment_action_dim
+        self.flow_action_dim = flow_action_dim
+        self.inference_flow_action_dim = inference_flow_action_dim
+        self.inference_dynamics = str(inference_dynamics)
         self.residual_hidden_dim = int(residual_hidden_dim)
         self.condition_builder = condition_builder
         self.checkpoint_dir = checkpoint_dir
@@ -350,10 +404,13 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
             model_horizon=self.model_horizon,
             model_action_dim=self.model_action_dim,
             environment_action_dim=self.environment_action_dim,
+            flow_action_dim=self.flow_action_dim,
+            inference_flow_action_dim=self.inference_flow_action_dim,
             residual_hidden_dim=self.residual_hidden_dim,
             init_log_std=math.log(math.sqrt(float(stochastic_variance))),
             num_steps=self.num_steps,
             sde_mode=self.sde_mode,
+            inference_dynamics=self.inference_dynamics,
             rngs=nnx.Rngs(0),
         )
         self.actor_graphdef, self.actor_state = nnx.split(self.actor)
@@ -472,7 +529,7 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
                 (
                     observation.state.shape[0],
                     self.model_horizon,
-                    self.environment_action_dim,
+                    self.inference_flow_action_dim,
                 ),
                 dtype=jnp.float32,
             )
@@ -480,12 +537,15 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
             noise_array = jnp.asarray(noise, dtype=jnp.float32)
             if noise_array.ndim == 2:
                 noise_array = noise_array[None, ...]
-            if noise_array.shape[-1] == self.model_action_dim:
-                noise_array = noise_array[..., : self.environment_action_dim]
+            if (
+                noise_array.shape[-1] == self.model_action_dim
+                and self.inference_flow_action_dim < self.model_action_dim
+            ):
+                noise_array = noise_array[..., : self.inference_flow_action_dim]
             expected = (
                 observation.state.shape[0],
                 self.model_horizon,
-                self.environment_action_dim,
+                self.inference_flow_action_dim,
             )
             if noise_array.shape != expected:
                 raise ValueError(
@@ -523,23 +583,42 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
 
     def action_chunks_to_flow(self, batch) -> torch.Tensor:
         if self.condition_builder is None or not hasattr(self.condition_builder, "action_chunks_to_flow"):
-            return super().action_chunks_to_flow(batch)
-        return self.condition_builder.action_chunks_to_flow(batch)
+            environment_actions = super().action_chunks_to_flow(batch)
+        else:
+            environment_actions = self.condition_builder.action_chunks_to_flow(batch)
+        if self.flow_action_dim == self.environment_action_dim:
+            return environment_actions
+        flow_actions = environment_actions.new_zeros(
+            environment_actions.shape[:-1] + (self.flow_action_dim,)
+        )
+        flow_actions[..., : self.environment_action_dim] = environment_actions
+        return flow_actions
 
     def flat_actions_to_environment(
         self,
         flat_actions: torch.Tensor,
         condition: PI05FlowCondition | None = None,
     ) -> torch.Tensor:
-        if self.condition_builder is None or not hasattr(self.condition_builder, "flat_actions_to_environment"):
-            return super().flat_actions_to_environment(flat_actions, condition)
+        batch_size = flat_actions.shape[0]
+        flow_actions = flat_actions.reshape(
+            batch_size,
+            self.model_horizon,
+            self.flow_action_dim,
+        )
+        environment_flat = flow_actions[..., : self.environment_action_dim].reshape(
+            batch_size, -1
+        )
+        if self.condition_builder is None or not hasattr(
+            self.condition_builder, "flat_actions_to_environment"
+        ):
+            return environment_flat
         model_states = None if condition is None else condition.state
         converted = self.condition_builder.flat_actions_to_environment(
-            flat_actions,
+            environment_flat,
             model_states=model_states,
         )
-        if flat_actions.requires_grad:
-            converted = converted + flat_actions - flat_actions.detach()
+        if environment_flat.requires_grad:
+            converted = converted + environment_flat - environment_flat.detach()
         return converted
 
     def predict_velocity(
@@ -549,26 +628,48 @@ class PI05JaxFlowPolicy(OpenPIStochasticFlowPolicy):
         timestep: torch.Tensor,
     ) -> torch.Tensor:
         batch = x_t.shape[0]
-        x_env = x_t.reshape(batch, self.model_horizon, self.environment_action_dim)
+        if x_t.shape[1] % self.model_horizon:
+            raise ValueError("flat PI0.5 flow state is not divisible by the action horizon")
+        active_flow_dim = x_t.shape[1] // self.model_horizon
+        if active_flow_dim not in {self.flow_action_dim, self.inference_flow_action_dim}:
+            raise ValueError(
+                f"unexpected PI0.5 flow dimension {active_flow_dim}; expected "
+                f"{self.flow_action_dim} or {self.inference_flow_action_dim}"
+            )
+        x_flow = x_t.reshape(batch, self.model_horizon, active_flow_dim)
         time = timestep.reshape(batch, -1)[:, 0].to(dtype=torch.float32)
 
         jax_obs = _observation_to_jax(condition.observation)
-        jax_x = _torch_to_jax(x_env)
+        jax_x = _torch_to_jax(x_flow)
         jax_time = _torch_to_jax(time)
         if self._inference_predict_velocity is None:
             actor = nnx.merge(self.actor_graphdef, self.actor_state)
             velocity = actor.predict_velocity(jax_obs, jax_x, jax_time)
         else:
             velocity = self._inference_predict_velocity(jax_obs, jax_x, jax_time)
-        return _jax_to_torch(velocity, device=x_env.device, dtype=x_env.dtype)
+        return _jax_to_torch(velocity, device=x_flow.device, dtype=x_flow.dtype)
+
+    def transition_mean(
+        self,
+        x_t: torch.Tensor,
+        condition: PI05FlowCondition,
+        timestep: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.inference_dynamics != "native_ode":
+            return super().transition_mean(x_t, condition, timestep)
+        velocity = self.predict_velocity(x_t, condition, timestep)
+        return self.flow_spec.euler_step(x_t, velocity)
 
     def clone_adapter(self, *, trainable: bool = False) -> "PI05JaxFlowPolicy":
         clone = PI05JaxFlowPolicy(
             self.backend,
             environment_action_dim=self.environment_action_dim,
+            flow_action_dim=self.flow_action_dim,
+            inference_flow_action_dim=self.inference_flow_action_dim,
             num_steps=self.num_steps,
             stochastic_variance=float(self.log_std.detach().exp().square().mean().item()),
             sde_mode=self.sde_mode,
+            inference_dynamics=self.inference_dynamics,
             residual_hidden_dim=self.residual_hidden_dim,
             condition_builder=self.condition_builder,
             checkpoint_dir=self.checkpoint_dir,
@@ -686,11 +787,14 @@ def load_pi05_jax_flow_policy(
     train_config_name: str,
     image_mapping: dict[str, str],
     environment_action_dim: int,
+    flow_action_dim: int | str | None = None,
+    inference_flow_action_dim: int | str | None = None,
     num_steps: int,
     stochastic_variance: float,
     sde_mode: str,
     residual_hidden_dim: int,
     device: torch.device | str,
+    inference_dynamics: str = "training_sde_drift",
 ) -> PI05JaxFlowPolicy:
     """Load a JAX PI0.5 checkpoint and construct the OGPO adapter.
 
@@ -732,9 +836,12 @@ def load_pi05_jax_flow_policy(
     return PI05JaxFlowPolicy(
         trained_policy._model,
         environment_action_dim=environment_action_dim,
+        flow_action_dim=flow_action_dim,
+        inference_flow_action_dim=inference_flow_action_dim,
         num_steps=num_steps,
         stochastic_variance=stochastic_variance,
         sde_mode=sde_mode,
+        inference_dynamics=inference_dynamics,
         residual_hidden_dim=residual_hidden_dim,
         condition_builder=builder,
         checkpoint_dir=str(checkpoint_dir),

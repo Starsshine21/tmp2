@@ -25,6 +25,12 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--skip-reference-policy", action="store_true")
     parser.add_argument("--skip-critic", action="store_true")
+    parser.add_argument(
+        "--inference-dynamics",
+        choices=("native_ode", "training_sde_drift"),
+    )
+    parser.add_argument("--inference-num-steps", type=int)
+    parser.add_argument("--require-model-flow-dim", action="store_true")
     args = parser.parse_args()
 
     policy = create_pi05_ogpo_inference_policy(
@@ -34,6 +40,9 @@ def main() -> None:
         device=args.device,
         include_reference_policy=not args.skip_reference_policy,
         include_critic=not args.skip_critic,
+        inference_dynamics=args.inference_dynamics,
+        inference_num_steps=args.inference_num_steps,
+        require_model_flow_dim=args.require_model_flow_dim,
     )
     hostname = socket.gethostname()
     logging.info("Creating OGPO server on %s:%d", hostname, args.port)
